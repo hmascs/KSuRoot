@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">KSuRoot</string>
+    <string name="nav_overview">首頁</string>
+    <string name="nav_history">執行紀錄</string>
+    <string name="nav_settings">設定</string>
+
+    <string name="install_confirm_title">安裝 KernelSU？</string>
+    <string name="install_confirm_body">應用程式將驗證支援設定檔，然後從 GitHub 下載並執行 exploit 與 KernelSU payload。</string>
+    <string name="install_confirm_body_bundled">應用程式將直接執行內建動態庫（libbs.so），無需聯網下載。</string>
+    <string name="install_confirm_body_custom">應用程式將直接執行你匯入的自訂動態庫（%1$s），無需聯網下載。</string>
+
+    <string name="action_confirm">確認</string>
+    <string name="action_cancel">取消</string>
+    <string name="action_close">關閉</string>
+    <string name="action_retry">重試</string>
+    <string name="action_done">完成</string>
+    <string name="action_back">返回</string>
+
+    <string name="install_tap_manager">點擊安裝 KernelSU Manager</string>
+    <string name="install_tap_retry">點擊重試</string>
+    <string name="install_tap_start">點擊安裝 KernelSU</string>
+
+    <string name="device">裝置</string>
+    <string name="firmware">韌體</string>
+    <string name="system">系統</string>
+    <string name="system_abi">系統 ABI</string>
+
+    <string name="settings">設定</string>
+    <string name="version_format">%1$s (%2$d)</string>
+    <string name="language">語言</string>
+    <string name="language_description">選擇應用程式語言</string>
+    <string name="appearance">外觀</string>
+    <string name="theme_system">系統</string>
+    <string name="theme_light">淺色</string>
+    <string name="theme_dark">深色</string>
+    <string name="material_color">主題</string>
+    <string name="material_color_description">更改外觀</string>
+
+    <string name="language_system">跟隨系統</string>
+
+    <string name="color_dynamic">系統動態顏色</string>
+    <string name="color_blue">藍色</string>
+    <string name="color_violet">紫色</string>
+    <string name="color_green">綠色</string>
+    <string name="color_orange">橙色</string>
+
+    <string name="history_title">執行紀錄</string>
+    <string name="history_empty_title">尚無執行紀錄</string>
+    <string name="history_empty_description">執行安裝後，結果與日誌將顯示於此。</string>
+    <string name="history_running">執行中</string>
+    <string name="history_succeeded">成功</string>
+    <string name="history_failed">失敗</string>
+    <string name="history_detail_title">執行詳情</string>
+    <string name="history_started">開始：%1$s</string>
+    <string name="history_completed">完成：%1$s</string>
+    <string name="history_log_empty">尚無日誌輸出。</string>
+
+    <string name="install_title">安裝</string>
+    <string name="install_keep_open">安裝完成前請保持此畫面開啟</string>
+    <string name="install_live_progress">日誌</string>
+    <string name="install_preparing">準備中…</string>
+
+    <string name="step_support_title">支援檢查</string>
+    <string name="step_support_detail">驗證裝置與韌體設定檔</string>
+    <string name="step_download_title">下載</string>
+    <string name="step_download_detail">載入支援清單</string>
+    <string name="step_exploit_title">核心 exploit</string>
+    <string name="step_exploit_detail">取得 bootstrap root</string>
+    <string name="step_ksu_title">載入 KernelSU</string>
+    <string name="step_ksu_detail">Late-load 模組並驗證控制通道</string>
+
+    <string name="phase_checking">正在檢查支援的裝置與韌體</string>
+    <string name="phase_ready">可以開始安裝</string>
+    <string name="phase_downloading">正在從 GitHub 下載固定提交的 payload</string>
+    <string name="phase_exploiting">可能需要 10 分鐘或更長時間，裝置可能會發燙或停止回應。</string>
+    <string name="phase_loading_ksu">正在使用 bootstrap root 載入 KernelSU</string>
+    <string name="phase_installed">KernelSU 模組與控制通道已驗證</string>
+    <string name="phase_failed">請在下方日誌中查看失敗位置</string>
+
+    <string name="status_ksu_active">KernelSU 已啟用</string>
+    <string name="status_not_installed">未安裝</string>
+    <string name="status_support_failed">支援檢查失敗</string>
+    <string name="status_checking_github">正在檢查 GitHub 支援清單</string>
+    <string name="status_downloading_payload">正在下載 payload</string>
+    <string name="status_exploit_running">正在執行核心 exploit</string>
+    <string name="status_ksu_loading">正在 late-load KernelSU</string>
+    <string name="status_install_failed">安裝失敗</string>
+
+    <string name="log_profile">[+] 支援設定檔：%1$s</string>
+    <string name="log_download_verified">[+] Payload 下載完成</string>
+    <string name="log_install_complete">[+] 安裝完成</string>
+    <string name="log_bootstrap_root">[+] 已取得 bootstrap root</string>
+    <string name="log_ksu_staged">[+] KernelSU 暫存完成</string>
+    <string name="log_ksu_control_verified">[+] KernelSU 控制通道已驗證</string>
+
+    <string name="error_helper_unavailable">無法執行 bootstrap helper</string>
+    <string name="error_exploit_stalled">Exploit 日誌已 90 秒未更新</string>
+    <string name="error_exploit_timeout">Exploit 超過 15 分鐘限制</string>
+    <string name="error_payload_exit">Payload 執行錯誤：%1$d%2$s</string>
+    <string name="error_success_marker">未找到 exploit 成功標記</string>
+    <string name="error_ksu_stage">KernelSU 暫存失敗：%1$s</string>
+    <string name="error_ksu_verify">KernelSU late-load 或控制驗證失敗 (rc=%1$d)：%2$s</string>
+    <string name="error_boot_id">無法讀取目前的 boot_id</string>
+    <string name="error_receipt">無法儲存安裝驗證結果</string>
+
+    <string name="artifact_exploit">exploit</string>
+    <string name="artifact_kernelsu">KernelSU</string>
+
+    <string name="repo_no_profile">沒有支援此型號與核心版本的相容 payload</string>
+    <string name="repo_downloading">正在下載 %1$s</string>
+    <string name="repo_size_mismatch">%1$s 大小與支援清單不符</string>
+    <string name="repo_size_exceeded">%1$s 超出聲明的大小</string>
+    <string name="repo_incomplete">%1$s 下載不完整</string>
+    <string name="repo_finalize_failed">無法完成 %1$s 檔案</string>
+    <string name="repo_verified">%1$s 已驗證</string>
+    <string name="repo_commit_invalid">GitHub 傳回的 commit SHA 無效</string>
+    <string name="repo_url_invalid">不允許的 artifact 儲存庫</string>
+    <string name="repo_response_too_large">回應超過大小限制</string>
+
+    <string name="open_github">開啟 GitHub</string>
+    <string name="github_card_title">探索 Root My Galaxy</string>
+    <string name="github_card_description">查看原始碼與使用說明。</string>
+
+    <string name="action_continue">忽略並繼續</string>
+    <string name="action_next">下一步</string>
+
+    <string name="advanced">進階</string>
+    <string name="advanced_mode">進階模式</string>
+    <string name="advanced_mode_description">安裝時手動選擇裝置相容的 payload</string>
+    <string name="shizuku_mode">使用 Shizuku</string>
+    <string name="shizuku_mode_description">使用 Shizuku 執行 payload，可能提高可靠性。</string>
+    <string name="shizuku_not_running_title">Shizuku 未在執行</string>
+    <string name="shizuku_not_running_body">請先透過 adb 或 root 啟動 Shizuku 服務並授予此應用程式權限，然後啟用此選項。</string>
+    <string name="action_download_shizuku">下載 Shizuku</string>
+    <string name="error_shizuku_unavailable">Shizuku 未在執行，請先透過 adb 或 root 啟動 Shizuku。</string>
+    <string name="error_shizuku_permission">未授予 Shizuku 權限</string>
+    <string name="error_shizuku_stage">無法透過 Shizuku 部署 %1$s：%2$s</string>
+    <string name="log_shizuku_prepare">[*] 正在準備 Shizuku 執行</string>
+    <string name="log_shizuku_permission">[+] 已授予 Shizuku 權限</string>
+
+    <string name="repo_profile_missing">支援設定檔 %1$s 已無法使用</string>
+
+    <string name="select_device_title">選擇 payload</string>
+    <string name="select_device_description">依裝置型號與核心版本選擇 payload。</string>
+    <string name="show_my_device_only">僅顯示我的裝置</string>
+    <string name="no_matching_devices">沒有與此型號及核心版本相符的 payload。</string>
+
+    <string name="device_mismatch_title">裝置不相符</string>
+    <string name="device_mismatch_body">目前的裝置為 %1$s，但所選的 payload 支援 %2$s。執行可能導致裝置停止回應或損壞。</string>
+
+    <string name="kernel_version_mismatch_title">核心版本不相符</string>
+    <string name="kernel_version_mismatch_body">目前的核心為 %1$s，但所選的 payload 支援 %2$s。偏移量可能不相容。</string>
+    <string name="about">關於</string>
+    <string name="about_title">關於 Root My Galaxy</string>
+    <string name="about_description">關於 Root My Galaxy</string>
+    <string name="about_body">一鍵安裝器，利用核心漏洞對受支援的三星 Galaxy 裝置進行 root。</string>
+    <string name="history_payload">Payload: %1$s</string>
+    <string name="export_log">匯出日誌</string>
+    <string name="export_log_saved">日誌已儲存</string>
+    <string name="export_log_failed">無法儲存日誌</string>
+    <string name="install_tap_open_manager">點擊開啟 KernelSU Manager</string>
+    <string name="how_it_works">運作原理</string>
+    <string name="kernelsu_card_description">以核心為基礎的 Android Root 解決方案</string>
+    <string name="history_shizuku_used">已使用 Shizuku</string>
+    <string name="history_shizuku_not_used">未使用 Shizuku</string>
+</resources>

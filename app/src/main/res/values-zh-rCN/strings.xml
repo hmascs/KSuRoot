@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">KSuRoot</string><string name="nav_overview">主页</string><string name="nav_history">运行记录</string><string name="nav_settings">设置</string>
+    <string name="install_confirm_title">安装 KernelSU？</string><string name="install_confirm_body">应用将验证支持配置，然后从 GitHub 下载并运行 exploit 与 KernelSU payload。</string><string name="install_confirm_body_bundled">应用将直接运行内置动态库（libbs.so），无需联网下载。</string><string name="install_confirm_body_custom">应用将直接运行你导入的自定义动态库（%1$s），无需联网下载。</string>
+    <string name="action_confirm">确认</string><string name="action_cancel">取消</string><string name="action_close">关闭</string><string name="action_retry">重试</string><string name="action_done">完成</string><string name="action_back">返回</string>
+    <string name="install_tap_manager">点击安装 KernelSU Manager</string><string name="install_tap_retry">点击重试</string><string name="install_tap_start">点击安装 KernelSU</string>
+    <string name="device">设备</string><string name="firmware">固件</string><string name="system">系统</string><string name="system_abi">系统 ABI</string>
+    <string name="settings">设置</string><string name="version_format">%1$s (%2$d)</string><string name="language">语言</string><string name="language_description">选择应用语言</string><string name="appearance">外观</string><string name="theme_system">系统</string><string name="theme_light">浅色</string><string name="theme_dark">深色</string><string name="material_color">主题</string><string name="material_color_description">更改外观</string>
+    <string name="language_system">跟随系统</string>
+    <string name="color_dynamic">系统动态颜色</string><string name="color_blue">蓝色</string><string name="color_violet">紫色</string><string name="color_green">绿色</string><string name="color_orange">橙色</string>
+    <string name="history_title">运行记录</string><string name="history_empty_title">暂无运行记录</string><string name="history_empty_description">执行安装后，结果和日志将显示在这里。</string><string name="history_running">运行中</string><string name="history_succeeded">成功</string><string name="history_failed">失败</string><string name="history_detail_title">运行详情</string><string name="history_started">开始: %1$s</string><string name="history_completed">完成: %1$s</string><string name="history_log_empty">暂无日志输出。</string>
+    <string name="install_title">安装</string><string name="install_keep_open">安装完成前请保持此界面开启</string><string name="install_live_progress">日志</string><string name="install_preparing">准备中…</string>
+    <string name="step_support_title">支持检查</string><string name="step_support_detail">验证设备与固件配置</string><string name="step_download_title">下载</string><string name="step_download_detail">加载支持清单</string><string name="step_exploit_title">内核 exploit</string><string name="step_exploit_detail">获取 bootstrap root</string><string name="step_ksu_title">加载 KernelSU</string><string name="step_ksu_detail">验证模块与控制通道</string>
+    <string name="phase_checking">正在检查支持的设备与固件</string><string name="phase_ready">可以开始安装</string><string name="phase_downloading">正在从 GitHub 下载固定提交的 payload</string><string name="phase_exploiting">可能需要 10 分钟或更长时间，设备可能会发热或停止响应。</string><string name="phase_loading_ksu">正在使用 bootstrap root 加载 KernelSU</string><string name="phase_installed">KernelSU 模块与控制通道已验证</string><string name="phase_failed">请在下方日志中查看失败位置</string>
+    <string name="status_ksu_active">KernelSU 已启用</string><string name="status_not_installed">未安装</string><string name="status_support_failed">支持检查失败</string><string name="status_checking_github">正在检查 GitHub 支持清单</string><string name="status_downloading_payload">正在下载 payload</string><string name="status_exploit_running">正在运行内核 exploit</string><string name="status_ksu_loading">正在 late-load KernelSU</string><string name="status_install_failed">安装失败</string>
+    <string name="log_profile">[+] 支持配置: %1$s</string><string name="log_download_verified">[+] payload 下载完成</string><string name="log_install_complete">[+] 安装完成</string><string name="log_bootstrap_root">[+] 已获取 bootstrap root</string><string name="log_ksu_staged">[+] KernelSU 暂存完成</string><string name="log_ksu_control_verified">[+] KernelSU 控制通道已验证</string>
+    <string name="error_helper_unavailable">无法执行 bootstrap helper</string><string name="error_exploit_stalled">exploit 日志已 90 秒未更新</string><string name="error_exploit_timeout">exploit 超过 15 分钟限制</string><string name="error_payload_exit">payload 执行错误: %1$d%2$s</string><string name="error_success_marker">未找到 exploit 成功标记</string><string name="error_ksu_stage">KernelSU 暂存失败: %1$s</string><string name="error_ksu_verify">KernelSU late-load 或控制验证失败 (rc=%1$d): %2$s</string><string name="error_boot_id">无法读取当前 boot_id</string><string name="error_receipt">无法保存安装验证结果</string>
+    <string name="artifact_exploit">exploit</string><string name="artifact_kernelsu">KernelSU</string><string name="repo_no_profile">没有支持此型号和内核版本的兼容 payload</string><string name="repo_downloading">正在下载 %1$s</string><string name="repo_size_mismatch">%1$s 大小与支持清单不符</string><string name="repo_size_exceeded">%1$s 超出声明的大小</string><string name="repo_incomplete">%1$s 下载不完整</string><string name="repo_finalize_failed">无法确定 %1$s 文件</string><string name="repo_verified">%1$s 已验证</string><string name="repo_commit_invalid">GitHub 返回的 commit SHA 无效</string><string name="repo_url_invalid">不允许的 artifact 仓库</string><string name="repo_response_too_large">响应超过大小限制</string>
+    <string name="open_github">打开 GitHub</string>
+    <string name="github_card_title">了解 Root My Galaxy</string>
+    <string name="github_card_description">查看源代码和使用方法。</string>
+    <string name="action_continue">忽略并继续</string><string name="action_next">下一步</string>
+    <string name="advanced">高级</string><string name="advanced_mode">高级模式</string><string name="advanced_mode_description">安装时手动选择设备兼容 payload</string>
+    <string name="shizuku_mode">使用 Shizuku</string><string name="shizuku_mode_description">使用 Shizuku 运行 payload，可能提高可靠性。</string><string name="shizuku_not_running_title">Shizuku 未在运行</string><string name="shizuku_not_running_body">请先通过 adb 或 root 启动 Shizuku 服务，并授予此应用权限，然后启用该选项。</string><string name="action_download_shizuku">下载 Shizuku</string><string name="error_shizuku_unavailable">Shizuku 未在运行，请先通过 adb 或 root 启动 Shizuku。</string><string name="error_shizuku_permission">未授予 Shizuku 权限</string><string name="error_shizuku_stage">无法通过 Shizuku 部署 %1$s：%2$s</string><string name="log_shizuku_prepare">[*] 正在准备 Shizuku 执行</string><string name="log_shizuku_permission">[+] 已授予 Shizuku 权限</string>
+    <string name="repo_profile_missing">支持配置 %1$s 已不可用</string>
+    <string name="select_device_title">选择支持的 payload</string><string name="select_device_description">按设备型号和内核版本选择 payload。</string><string name="show_my_device_only">仅显示我的设备</string><string name="no_matching_devices">没有与此型号和内核版本匹配的 payload。</string>
+    <string name="device_mismatch_title">设备不匹配</string><string name="device_mismatch_body">当前设备为 %1$s，但所选 payload 支持 %2$s。运行可能导致设备停止响应或损坏。</string>
+    <string name="kernel_version_mismatch_title">内核版本不匹配</string><string name="kernel_version_mismatch_body">当前内核为 %1$s，但所选 payload 支持 %2$s。偏移量可能不兼容。</string>
+    <string name="about">关于</string>
+    <string name="about_title">关于 Root My Galaxy</string>
+    <string name="about_description">关于 Root My Galaxy</string>
+    <string name="about_body">一键安装器，利用内核漏洞对受支持的三星 Galaxy 设备进行 root。</string>
+    <string name="history_payload">Payload: %1$s</string>
+    <string name="export_log">导出日志</string>
+    <string name="export_log_saved">日志已保存</string>
+    <string name="export_log_failed">无法保存日志</string>
+    <string name="install_tap_open_manager">点击打开 KernelSU Manager</string>
+    <string name="how_it_works">工作原理</string>
+    <string name="kernelsu_card_description">基于内核的 Android Root 方案</string>
+    <string name="history_shizuku_used">已使用 Shizuku</string>
+    <string name="history_shizuku_not_used">未使用 Shizuku</string>
+    <string name="custom_payload_title">自定义动态库</string>
+    <string name="custom_payload_description">选择 CVE-2026-43499 提权使用的动态库。导入的动态库将作为一体化载荷直接运行。</string>
+    <string name="payload_source_online">官方在线源</string>
+    <string name="payload_source_online_detail">三星手机可用，按设备型号与内核版本匹配下载</string>
+    <string name="payload_source_bundled">内置动态库（libbs.so）</string>
+    <string name="payload_source_bundled_detail">iQOO 骁龙八至尊手机可用，分支内置的一体化提权载荷</string>
+    <string name="payload_detail_action">查看支持机型</string>
+    <string name="payload_detail_online_title">官方在线源 · 支持的三星机型</string>
+    <string name="payload_detail_online_note">同步自 Root-My-Galaxy 官方载荷清单（2026 年 8 月）。内核版本必须完全一致才可匹配。</string>
+    <string name="payload_detail_bundled_title">内置动态库 · 支持的 iQOO 机型</string>
+    <string name="payload_detail_bundled_note">以下机型均搭载骁龙 8 至尊版平台。</string>
+    <string name="payload_detail_kernel_format">内核 %1$s</string>
+    <string name="chip_snapdragon_8_elite">骁龙 8 至尊版</string>
+    <string name="payload_source_custom">自定义导入</string>
+    <string name="custom_import_action">导入动态库</string>
+    <string name="custom_remove_action">移除</string>
+    <string name="custom_none">尚未导入动态库</string>
+    <string name="custom_import_success">已导入 %1$s</string>
+    <string name="custom_import_failed">导入失败</string>
+    <string name="custom_import_invalid">所选文件不是有效的 ELF 动态库</string>
+    <string name="custom_removed">已移除自定义动态库</string>
+    <string name="custom_meta_format">%1$s · %2$s</string>
+    <string name="custom_sha_format">SHA-256：%1$s</string>
+    <string name="error_bundled_missing">内置动态库缺失</string>
+    <string name="log_custom_payload">使用自定义动态库：%1$s</string>
+    <string name="log_bundled_payload">使用内置动态库：libbs.so</string>
+    <string name="log_custom_missing_fallback">自定义动态库不存在，回退到官方在线源</string>
+    <string name="log_local_ready">已启用本地载荷：%1$s</string>
+    <string name="status_local_preparing">正在准备本地载荷…</string>
+    <string name="activation_hint_title">基于 Root-My-Galaxy 三星</string>
+    <string name="activation_hint_body">Mod By hmascs，可正常使用全部功能</string>
+</resources>
