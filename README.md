@@ -4,7 +4,7 @@
 
 本分支以 KSuRoot 为蓝本，完整同步 [Root-My-Galaxy](https://github.com/BuSung-dev/Root-My-Galaxy) v0.2.6 主线更新，并在此基础上增加了**载荷构建**、**内置动态库修复**与一整套液态玻璃 UI。
 
-> Mod by **hmascs** · 版本 **3.0**（versionCode 300）· Apache-2.0
+> Mod by **hmascs** · 版本 **3.0.1**（versionCode 301）· Apache-2.0
 > 仓库：<https://github.com/hmascs/KSuRoot>
 
 ---
@@ -36,10 +36,22 @@
 - 全程离线，构建日志实时上屏；界面上直接摊开"打的是哪一份库"（文件名 / 大小 / SHA-256 / 来源版本）
 - 算法来自独立的纯 Kotlin 模块 `com.kernelpack`：boot.img 头 v0~v4 / 裸 Image / Image.gz、Linux 6.4 前后两种 kallsyms 排布、按寄存器数据流改写 `movz/movk/movn` 常量，**原地覆盖、不增删字节**，改完重新扫描自证（旧值残留必须为 0）
 
-### 内置动态库
+### 内置动态库（3.0.1 修掉了真正的卡点）
 
-- 固定为官方 release **v1.0.0**（`preload.so`，162328 字节，SHA-256 `87bf839f…b861`）—— 提权速度稍慢但**稳定**
-- 打包时用 `keepDebugSymbols` 保住原件：AGP 默认会 strip `jniLibs` 里的 `.so`（实测会被削掉近 20KB），预编译载荷被隐式改写正是"内置库不可用"最隐蔽的一层原因
+「内置动态库不可用」其实是**三层**原因叠在一起，前两层是隐患，第三层才是真正卡住安装的那一步：
+
+1. **版本**：内置的是上游 v1.3.0 → 固定为 **v1.0.0**（`preload.so`，162328 字节，SHA-256 `87bf839f…b861`）—— 提权速度稍慢但**稳定**
+2. **打包被 strip**：AGP 默认会 strip `jniLibs` 里的 `.so`（实测 `libbs.so` 162328 → 142848 字节），预编译载荷被隐式改写；现已用 `keepDebugSymbols` 保住原件
+3. **一行多余的 `chmod`（真凶）**：内置载荷住在 `applicationInfo.nativeLibraryDir`，那里的文件是安装器**以 system 身份**提取的：
+
+   ```
+   -rwxr-xr-x system system 162328 libbs.so
+   ```
+
+   属主是 `system` 而非应用自己 → 应用执行 `Os.chmod` 直接 `EACCES`，而旧代码没兜异常，安装链在打印完「使用内置动态库：libbs.so」后立刻断掉：
+   `[-] chmod failed: EACCES (Permission denied)` → 安装失败。**这行自 2.2.0 起就在**，而它本来就 `r-xr-xr-x`（载荷只被 LD_PRELOAD 映射，不需要额外权限），所以那次 chmod 纯属多余。自定义载荷之所以没事，是因为那份文件由应用自己写入私有目录、属主是自己。
+
+   现由 `PayloadStaging` 统一处理：**已经够用就一次 chmod 都不做**；不够用才就地 chmod，再不行复制到应用私有目录补权限。
 
 ### 界面与记录
 

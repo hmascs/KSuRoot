@@ -419,7 +419,10 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         if (shizukuEnabled()) {
             shizukuStage(nativeHelperFile(), SHIZUKU_HELPER_PATH, "755")
         } else {
-            nativeHelperFile()
+            // 同样来自 /data/app/.../lib：属主是 system，chmod 会 EACCES。
+            // 它本来就是 0755，所以这里通常原样返回；万一某些 ROM 给成 0644，
+            // PayloadStaging 会复制到私有目录再补上可执行位。
+            PayloadStaging.ensureExecutable(app, nativeHelperFile())
         }
 
     private fun nativeHelperFile() = File(app.applicationInfo.nativeLibraryDir, "libcve43499root.so")

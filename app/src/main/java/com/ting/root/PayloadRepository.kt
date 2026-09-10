@@ -27,9 +27,12 @@ class PayloadRepository(private val context: Context) {
     )
 
     fun bundledPayloads(profile: TargetProfile): VerifiedPayloads {
-        val exploit = File(context.applicationInfo.nativeLibraryDir, BUNDLED_LIBRARY)
-        require(exploit.exists()) { context.getString(R.string.error_bundled_missing) }
-        Os.chmod(exploit.absolutePath, 0b100100100)
+        val bundled = File(context.applicationInfo.nativeLibraryDir, BUNDLED_LIBRARY)
+        require(bundled.exists()) { context.getString(R.string.error_bundled_missing) }
+        // 内置库在 /data/app/.../lib/arm64/ 下，属主是 system —— 直接 chmod 会 EACCES，
+        // 而它本来就 r-xr-xr-x。PayloadStaging 会先判断"够不够"，够就不动它。
+        val exploit = PayloadStaging.ensureReadable(context, bundled)
+        require(exploit.canRead()) { context.getString(R.string.error_bundled_missing) }
         return VerifiedPayloads(profile, exploit, null)
     }
 
@@ -41,8 +44,9 @@ class PayloadRepository(private val context: Context) {
 
     fun customPayloads(profile: TargetProfile, info: CustomPayloadInfo): VerifiedPayloads {
         require(info.file.exists()) { context.getString(R.string.custom_import_failed) }
-        Os.chmod(info.file.absolutePath, 0b100100100)
-        return VerifiedPayloads(profile, info.file, null)
+        val exploit = PayloadStaging.ensureReadable(context, info.file)
+        require(exploit.canRead()) { context.getString(R.string.custom_import_failed) }
+        return VerifiedPayloads(profile, exploit, null)
     }
 
     private fun localTarget(
@@ -89,8 +93,8 @@ class PayloadRepository(private val context: Context) {
             context.getString(R.string.artifact_kernelsu),
             onProgress,
         )
-        Os.chmod(exploit.absolutePath, 0b100100100)
-        Os.chmod(kernelSu.absolutePath, 0b100100100)
+        PayloadStaging.ensureReadable(context, exploit)
+        PayloadStaging.ensureReadable(context, kernelSu)
         return VerifiedPayloads(profile, exploit, kernelSu)
     }
 
