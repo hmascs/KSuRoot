@@ -49,6 +49,7 @@
     <string name="color_violet">Violet</string>
     <string name="color_green">Green</string>
     <string name="color_orange">Orange</string>
+    <string name="color_miu_blue">MIUI Blue</string>
     <string name="history_title">Run history</string>
     <string name="history_empty_title">No runs yet</string>
     <string name="history_empty_description">Installation results and logs will appear here.</string>
@@ -66,9 +67,9 @@
     <string name="export_log_saved">Log saved</string>
     <string name="export_log_failed">Unable to save the log</string>
     <string name="about">About</string>
-    <string name="about_title">About Root My Galaxy</string>
-    <string name="about_description">About Root My Galaxy</string>
-    <string name="about_body">One-click installer that uses a kernel exploit to root supported Samsung Galaxy devices.</string>
+    <string name="about_title">About KSUroot</string>
+    <string name="about_description">About KSUroot</string>
+    <string name="about_body">KSuRoot installs KernelSU entirely on-device: it resolves the kernel symbol offsets the CVE-2026-43499 (GhostLock) chain needs straight out of your boot.img — no PC and no ADB required.</string>
 
     <string name="install_title">Install</string>
     <string name="install_keep_open">Keep this screen open until installation finishes</string>
@@ -184,4 +185,77 @@
     <string name="status_local_preparing">Preparing local payload…</string>
     <string name="activation_hint_title">Based on Root-My-Galaxy (Samsung)</string>
     <string name="activation_hint_body">Mod by hmascs. All features are ready to use.</string>
+
+    <!-- 载荷构建（boot.img → 内核偏移 → 打补丁的动态库） -->
+    <string name="nav_builder">Builder</string>
+    <string name="builder_heading">Payload builder</string>
+    <string name="builder_description">Reads the kernel symbol table out of a boot.img, resolves the offsets this exploit chain needs, and rewrites the chosen base library into a build that matches your kernel. Tapping "Build payload" asks which scheme to use first: the universal one covers most devices, while vivo / iQOO needs the build carrying the vr.ko anti-root bypass. Everything happens on-device — no network.</string>
+    <string name="builder_section_input">Input</string>
+    <string name="builder_section_result">Result</string>
+    <string name="builder_section_output">Output</string>
+    <string name="builder_boot_image">boot.img</string>
+    <string name="builder_boot_none">No file selected</string>
+    <string name="builder_pick_boot">Choose boot.img</string>
+    <string name="builder_boot_hint">Use a boot.img whose kernel version matches this device (take it from the official firmware package, or dump /dev/block/by-name/boot).</string>
+    <string name="builder_run">Build payload</string>
+    <string name="builder_running">Building…</string>
+    <string name="builder_log_title">Build log</string>
+    <string name="builder_phase_reading">Reading %1$s …</string>
+    <string name="builder_loaded">boot.img %1$d KB · base library %2$d KB</string>
+    <string name="builder_read_failed">Could not read the selected file</string>
+    <string name="builder_no_input">Choose a boot.img first</string>
+    <string name="builder_no_output">Offsets were resolved but the library was not packed (see the log)</string>
+    <string name="builder_kernel">Kernel: %1$s (%2$s)</string>
+    <string name="builder_base">Link base: %1$s</string>
+    <string name="builder_symbols">Symbols: %1$d</string>
+    <string name="builder_offsets">Offsets resolved: %1$d / %2$d</string>
+    <string name="builder_baseline">Baseline: %1$s</string>
+    <string name="builder_variant">Variant: %1$s</string>
+    <string name="builder_patch_stats">Keys needing rewrite: %1$d · verified: %2$d</string>
+    <string name="builder_patch_noop">This library already matches your kernel — the packed copy is byte-identical to the bundled one.</string>
+    <string name="builder_patch_absent">%1$d keys are not referenced by this library</string>
+    <string name="builder_patch_done">Patch: %1$d keys need rewriting · %2$d sites handled</string>
+    <string name="builder_output_ready">Packed library: %1$d KB</string>
+    <string name="builder_output_size">Size: %1$s</string>
+    <string name="builder_output_sha">SHA-256: %1$s</string>
+    <string name="builder_set_as_payload">Use as custom payload</string>
+    <string name="builder_export_so">Export .so</string>
+    <string name="builder_export_header">Export target.h</string>
+    <string name="builder_applied">Saved as custom payload: %1$s</string>
+    <string name="builder_notices">Notices</string>
+    <string name="builder_export_done">Saved</string>
+    <string name="builder_export_failed">Export failed</string>
+
+    <!-- 载荷构建：方案选择 -->
+    <string name="builder_scheme_title">Which payload to build?</string>
+    <string name="builder_scheme_subtitle">Both schemes are the same CVE-2026-43499 chain — they differ in vendor adaptation.</string>
+    <string name="builder_scheme_universal">Universal</string>
+    <string name="builder_scheme_universal_detail">Works on most GKI 6.6 devices. No vendor anti-root bypass, so it is the safe default outside vivo/iQOO.</string>
+    <string name="builder_scheme_vivo">vivo / iQOO (vr.ko bypass)</string>
+    <string name="builder_scheme_vivo_detail">Adds the vr.ko anti-root bypass. Required on vivo / iQOO, where the universal chain is blocked.</string>
+    <string name="builder_scheme_recommended">Recommended</string>
+    <string name="builder_saved_download">Saved to %1$s</string>
+    <string name="builder_save_download_failed">Could not write to the Download folder</string>
+
+    <string name="builder_base_library">Base library: %1$s · %2$s</string>
+    <string name="builder_applied_state">Already written into the custom payload</string>
+
+    <string name="ksuroot_card_title">KSuRoot repository</string>
+    <string name="ksuroot_card_description">Source code and usage notes for this app.</string>
+    <string name="device_kernel">Kernel</string>
+    <string name="kernel_support_ok">GhostLock without ADB supported</string>
+    <string name="kernel_support_need_shizuku">Below 6.6 · Shizuku (ADB) required</string>
+    <string name="kernel_gate_title">Kernel version too old</string>
+    <string name="kernel_gate_body">No-ADB escalation (GhostLock / CVE-2026-43499) needs kernel 6.6 or newer (both the 6.6 and 6.12 series are verified). This device runs %1$s, which is below 6.6 — only the ADB route is available.</string>
+    <string name="kernel_gate_shizuku_hint">Enable Shizuku authorization in Settings, then come back and install.</string>
+    <string name="kernel_gate_wait">Please wait (%1$d)</string>
+    <string name="kernel_gate_continue">Continue anyway</string>
+
+    <string name="history_recorded">Recorded</string>
+    <string name="copy_log">Copy log</string>
+    <string name="save_log">Save log</string>
+    <string name="log_copied">Log copied to clipboard</string>
+    <string name="log_copy_failed">Could not copy the log</string>
+    <string name="log_saved">Log saved</string>
+    <string name="log_save_failed">Could not save the log</string>
 </resources>

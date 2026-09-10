@@ -19,8 +19,13 @@ class PayloadRepositoryTest {
 
         val payloads = repository.download(profile) { }
         assertEquals(profile.exploit.size, payloads.exploit.length())
-        assertEquals(profile.kernelSu.size, payloads.kernelSu.length())
         assertTrue(payloads.exploit.canRead())
-        assertTrue(payloads.kernelSu.canRead())
+        // kernelSu 是可空的：在线清单里只有三星那几档才带 KSU 载荷，
+        // 本地载荷（内置 / 自定义）本来就没有它 —— 所以这里不能无条件断言。
+        val kernelSu = payloads.kernelSu
+        if (kernelSu != null) {
+            assertEquals(profile.kernelSu?.size, kernelSu.length())
+            assertTrue(kernelSu.canRead())
+        }
     }
 }

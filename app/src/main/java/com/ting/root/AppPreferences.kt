@@ -9,7 +9,8 @@ enum class AccentColor(val storedValue: String) {
     Blue("blue"),
     Violet("violet"),
     Green("green"),
-    Orange("orange");
+    Orange("orange"),
+    MiuBlue("miu_blue"); // MIUI 默认蓝（#2371E1）
 
     companion object {
         fun fromStoredValue(value: String?): AccentColor =

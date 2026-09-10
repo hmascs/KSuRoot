@@ -6,3 +6,9 @@ local.properties
 **/build/
 captures/
 *.iml
+
+# 签名密钥绝不入库
+*.jks
+*.keystore
+*.pk8
+*.pem

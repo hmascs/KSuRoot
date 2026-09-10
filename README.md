@@ -2,27 +2,56 @@
 
 基于 **CVE-2026-43499（GhostLock）** 内核漏洞的一键 KernelSU 提权工具。
 
-本分支以 KSURoot 为蓝本，完整同步 [Root-My-Galaxy](https://github.com/BuSung-dev/Root-My-Galaxy) v0.2.6 主线更新，并新增**自定义导入动态库**功能。
+本分支以 KSuRoot 为蓝本，完整同步 [Root-My-Galaxy](https://github.com/BuSung-dev/Root-My-Galaxy) v0.2.6 主线更新，并在此基础上增加了**载荷构建**、**内置动态库修复**与一整套液态玻璃 UI。
 
-> Mod by **hmascs** · 版本 2.2.0（versionCode 220）· Apache-2.0
+> Mod by **hmascs** · 版本 **3.0**（versionCode 300）· Apache-2.0
+> 仓库：<https://github.com/hmascs/KSuRoot>
 
 ---
 
 ## 功能亮点
 
+### 提权与载荷
+
 - **一键提权**：基于 CVE-2026-43499 内核漏洞完成提权并安装 KernelSU，无需解锁 Bootloader
-- **主线同步**：对齐 Root-My-Galaxy v0.2.6 —— Jetpack Compose 界面、在线设备清单（schema v3）自动匹配、安装历史记录、主题与多语言
+- **免 ADB**：**内核 6.6 及以上**（6.6 / 6.12 两系均已验证，6.7~6.11 同理）可直接在设备上完成提权，不需要电脑、不需要 ADB；低于 6.6 的内核才需要 Shizuku（ADB）授权
 - **三种载荷来源，主页自由切换**（切换即时生效，无需重启）：
-  - **官方在线源** —— 按设备型号与内核版本自动匹配，从 Root-My-Galaxy-Payloads 仓库下载，支持三星机型
-  - **内置动态库（libbs.so）** —— 分支内置一体化提权载荷，离线可用，支持 iQOO 骁龙 8 至尊版机型
-  - **自定义导入** —— 从本地导入任意 `.so` 载荷（ELF 魔数校验、256MB 大小限制、SHA-256 指纹记录），随时移除
-- **支持机型详情页**：两种来源均内置支持机型列表（型号代码 + 内核版本）
+  - **官方在线源** —— 按设备型号与内核版本自动匹配下载，支持三星机型
+  - **内置动态库** —— 分支内置一体化提权载荷，离线可用，支持 iQOO 骁龙 8 至尊版机型
+  - **自定义导入 / 构建产物** —— 导入任意 `.so`（ELF 魔数校验、256MB 上限、SHA-256 指纹），随时移除
 - **双执行模式**：默认原生执行，可选 Shizuku 模式
-- **安装确认文案随来源动态变化**，本地载荷全程不联网
+
+### 载荷构建（新增页面）
+
+把「换机型就要重新编译」这件事搬到手机上：
+
+```
+本机 boot.img  ──►  内核符号表（kallsyms）  ──►  这条链需要的偏移  ──►  打好补丁的动态库
+```
+
+- 点「开始构建」会先问**用哪套方案**：
+  1. **通用方案（推荐）** —— IonStack 上游分支，不带厂商适配，适用于大部分 GKI 6.6+ 设备
+  2. **vivo / iQOO（vr.ko 反 su 绕过）** —— 额外做厂商反 root 绕过，蓝厂机型必须选它
+- 产物**自动**做两件事：写进 `/storage/emulated/0/Download/`（不需要任何存储权限），并写入「自定义动态库」并切换载荷源
+- 全程离线，构建日志实时上屏；界面上直接摊开"打的是哪一份库"（文件名 / 大小 / SHA-256 / 来源版本）
+- 算法来自独立的纯 Kotlin 模块 `com.kernelpack`：boot.img 头 v0~v4 / 裸 Image / Image.gz、Linux 6.4 前后两种 kallsyms 排布、按寄存器数据流改写 `movz/movk/movn` 常量，**原地覆盖、不增删字节**，改完重新扫描自证（旧值残留必须为 0）
+
+### 内置动态库
+
+- 固定为官方 release **v1.0.0**（`preload.so`，162328 字节，SHA-256 `87bf839f…b861`）—— 提权速度稍慢但**稳定**
+- 打包时用 `keepDebugSymbols` 保住原件：AGP 默认会 strip `jniLibs` 里的 `.so`（实测会被削掉近 20KB），预编译载荷被隐式改写正是"内置库不可用"最隐蔽的一层原因
+
+### 界面与记录
+
+- **液态玻璃 UI**：悬浮玻璃底栏 + 滑块（backdrop 折射/模糊）、MIUIX 卡片与分组、跟随主题的配色；卡片与页面按 miuix 语义色分层（页面 `surface`、卡片 `surfaceContainer`）
+- **设备信息**：设备 / 固件 / 系统 / 系统 ABI / **内核版本**（并直接给出"是否支持免 ADB 提权"的判定）
+- **运行记录只记过程，不判成败**：蓝厂机型上"跑完了但没拿到 root"与"真的跑挂了"无法区分，因此不再显示成功/失败，只保留「进行中 / 已记录」；是否真的装上以主页 KernelSU 状态为准
+- **日志**：安装页实时日志与运行记录详情都支持**一键复制**与**保存到指定目录**
+- **内核门槛提示**：内核低于 6.6 时按安装会先提示"免 ADB 走不通，请在设置中打开 Shizuku 授权"，确认按钮带 3 秒倒计时
 
 ## 支持设备
 
-### 官方在线源（三星，数据同步自官方载荷清单，2026 年 8 月）
+### 官方在线源（三星，数据同步自官方载荷清单）
 
 | 机型 | 型号代码 | 内核版本 |
 |---|---|---|
@@ -50,26 +79,38 @@
 
 > 注意：iQOO Neo 10 Pro（无 +）为天玑 9400，**不受支持**。
 
+### 其它机型
+
+不限品牌：**内核 6.6 及以上**即可用「载荷构建」把自己机器的 `boot.img` 解析成偏移，打出适配本机的通用方案载荷。
+
 ## 使用说明
 
 1. 安装 APK（minSdk 33，即 Android 13+）
-2. 在主页选择载荷来源（默认官方在线源；iQOO 用户选内置动态库，也可导入自定义库）
+2. 在主页选择载荷来源：
+   - 三星机型 → 官方在线源
+   - iQOO / vivo → 内置动态库
+   - 其它机型 → 先到「载荷构建」用本机 `boot.img` 生成载荷（产物会自动进入「自定义动态库」）
 3. 点击"安装"并确认，等待提权与 KernelSU 加载完成
 4. 按提示安装 KernelSU Manager 管理模块
 
 ## 从源码构建
 
 ```bash
-./gradlew assembleDebug
+./gradlew assembleRelease
 ```
 
-- JDK 21 · Android Gradle Plugin 9.2 · NDK 28.2.13676358
-- 产物位于 `app/build/outputs/apk/debug/`
+- JDK 21 · Android Gradle Plugin 9.2 · compileSdk 37 · NDK **30.0.16248370** · CMake 3.22.1
+- 产物位于 `app/build/outputs/apk/release/`
+- 签名参数从 `GRADLE_USER_HOME/gradle.properties` 读取（`KSU_ROOT_STORE_FILE` 等），不写入仓库
+- 推送 `main` 会自动触发 GitHub Actions 构建并上传 APK 产物（见 `.github/workflows/build.yml`）
 
 ## 致谢
 
 - [Root-My-Galaxy](https://github.com/BuSung-dev/Root-My-Galaxy) by BuSung-dev —— 本项目的应用架构与在线载荷体系（Apache-2.0）
+- [CVE-2026-43499-Neo11Plus](https://github.com/boxiaolanya2008/CVE-2026-43499-Neo11Plus) by boxiaolanya2008 —— 内置动态库（v1.0.0）与 `target.h` 基线
+- [IonStack / CyberMeowfia](https://github.com/NebuSec/CyberMeowfia) by NebuSec —— 通用方案载荷的上游源码
 - [KernelSU](https://github.com/tiann/KernelSU) —— 内核级 root 方案
+- [miuix](https://github.com/compose-miuix-ui/miuix) · [Backdrop](https://github.com/Kyant0/Backdrop) —— MIUIX 组件与液态玻璃效果
 - CVE-2026-43499（GhostLock）漏洞研究
 
 ## 免责声明
@@ -84,4 +125,14 @@
 
 ## English Summary
 
-KSuRoot is a one-click KernelSU rooting tool based on the **CVE-2026-43499 (GhostLock)** kernel vulnerability. This branch syncs all updates from [Root-My-Galaxy](https://github.com/BuSung-dev/Root-My-Galaxy) v0.2.6 and adds **custom payload (.so) import** on the home page. Three payload sources are available: the official online feed (Samsung devices), the bundled `libbs.so` (iQOO Snapdragon 8 Elite devices: Neo 10 Pro+, Neo 11, iQOO 13), and user-imported libraries with ELF validation and SHA-256 fingerprinting. For research and educational use only. Licensed under Apache-2.0.
+KSuRoot is a one-click KernelSU rooting tool built on the **CVE-2026-43499 (GhostLock)** kernel vulnerability. This branch syncs [Root-My-Galaxy](https://github.com/BuSung-dev/Root-My-Galaxy) v0.2.6 and adds a **payload builder**, a fixed bundled payload and a liquid-glass UI.
+
+Version **3.0**. Highlights:
+
+- **No ADB needed on kernel 6.6+** (the 6.6 and 6.12 series are verified, 6.7–6.11 likewise); kernels below 6.6 fall back to a Shizuku (ADB) authorization, and the app says so before you install.
+- **Payload builder page**: it reads the kernel symbol table straight out of your `boot.img`, resolves the offsets this chain needs, and rewrites the chosen base library into a build matching your kernel. Two schemes: *Universal* (IonStack upstream, most devices) and *vivo / iQOO* (adds the `vr.ko` anti-root bypass). Output is written to `Download/` and registered as the custom payload automatically — everything on-device, no network.
+- **Bundled payload pinned to release v1.0.0** (slow but stable) and protected from AGP stripping, so what ships is byte-identical to the upstream artifact.
+- **History records the process, it does not judge** success or failure (that verdict is meaningless on vivo/iQOO); logs can be copied to the clipboard or saved to any directory.
+- Liquid-glass floating navigation bar, MIUIX cards, kernel check row, and multi-language UI.
+
+For research and educational use only. Licensed under Apache-2.0.

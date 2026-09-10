@@ -7,10 +7,14 @@
         <package android:name="moe.shizuku.manager" />
     </queries>
 
+    <!-- largeHeap：载荷构建要在内存里同时持有 boot.img、解压后的内核镜像与十万个内核符号，
+         峰值几十 MB；普通堆上限 256MB（dalvik.vm.heapgrowthlimit）余量不足，
+         这里开到 512MB（dalvik.vm.heapsize）。 -->
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:largeHeap="true"
         android:localeConfig="@xml/locales_config"
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"

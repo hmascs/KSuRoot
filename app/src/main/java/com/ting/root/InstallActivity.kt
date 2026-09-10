@@ -1,11 +1,14 @@
 package com.ting.root
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
@@ -13,7 +16,6 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,36 +26,41 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudDownload
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LoadingIndicator
-import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.ting.root.ui.glass.AppBackground
 import com.ting.root.ui.theme.RootMyGalaxyTheme
 import kotlinx.coroutines.delay
 
@@ -120,7 +127,10 @@ private fun InstallScreen(
         logScrollState.scrollTo(logScrollState.maxValue)
     }
 
-    Scaffold { padding ->
+    Box(modifier = Modifier.fillMaxSize()) {
+        // 与主界面同一套背景语义色（miuix `surface`），进入安装页视觉不断层。
+        AppBackground()
+        Scaffold(containerColor = Color.Transparent) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -185,26 +195,25 @@ private fun InstallScreen(
                 }
             }
         }
+        }
     }
 }
 
 @Composable
 private fun InstallerStatusCard(installState: InstallUiState) {
+    val scheme = MiuixTheme.colorScheme
+    // 状态色全部取 miuix 语义色对（container / on-container 成对使用，
+    // 对比度由色板保证）。失败=红、其余=蓝，与安装页的「进行中」语义一致。
+    val failed = installState.phase == InstallPhase.Failed
+    val containerColor = if (failed) scheme.errorContainer else scheme.tertiaryContainer
+    val contentColor = if (failed) scheme.onErrorContainer else scheme.onTertiaryContainer
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .animateContentSize(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = when (installState.phase) {
-                InstallPhase.Failed -> MaterialTheme.colorScheme.errorContainer
-                else -> MaterialTheme.colorScheme.primaryContainer
-            },
-            contentColor = if (installState.phase == InstallPhase.Failed) {
-                MaterialTheme.colorScheme.onErrorContainer
-            } else {
-                MaterialTheme.colorScheme.onPrimaryContainer
-            },
+        colors = CardDefaults.defaultColors(
+            color = containerColor,
+            contentColor = contentColor,
         ),
     ) {
         Column(
@@ -219,7 +228,7 @@ private fun InstallerStatusCard(installState: InstallUiState) {
                     when {
                         installState.busy -> LoadingIndicator(
                             modifier = Modifier.size(44.dp),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            color = contentColor,
                         )
                         phase == InstallPhase.Installed -> Icon(
                             Icons.Rounded.Check,
@@ -240,15 +249,15 @@ private fun InstallerStatusCard(installState: InstallUiState) {
                     )
                     Text(
                         text = installPhaseDetail(installState.phase),
-                        color = LocalContentColor.current.copy(alpha = 0.78f),
+                        color = contentColor.copy(alpha = 0.78f),
                     )
                 }
             }
             LinearProgressIndicator(
                 progress = { installProgress(installState.phase) },
                 modifier = Modifier.fillMaxWidth(),
-                color = LocalContentColor.current,
-                trackColor = LocalContentColor.current.copy(alpha = 0.2f),
+                color = contentColor,
+                trackColor = contentColor.copy(alpha = 0.2f),
                 drawStopIndicator = {},
             )
         }
@@ -259,10 +268,6 @@ private fun InstallerStatusCard(installState: InstallUiState) {
 private fun InstallerSteps(phase: InstallPhase) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-        ),
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -325,9 +330,19 @@ private fun InstallerLog(
     modifier: Modifier,
     scrollState: androidx.compose.foundation.ScrollState,
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // 注意：stringResource 是 @Composable，不能在 onClick 里调 —— 先取到外面。
+    val preparingText = stringResource(R.string.install_preparing)
+    val logText = output.ifBlank { preparingText }
+    var pendingLog by remember { mutableStateOf("") }
+    val saveLogLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val uri = result.data?.data ?: return@rememberLauncherForActivityResult
+        context.writeLogToUri(uri, pendingLog)
+    }
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
     ) {
         Column(
             modifier = Modifier
@@ -335,7 +350,39 @@ private fun InstallerLog(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(stringResource(R.string.install_live_progress), style = MaterialTheme.typography.titleMedium)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.install_live_progress),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                // 一键复制：出问题时直接把日志贴到群里/issue 里
+                IconButton(onClick = { context.copyLogToClipboard(logText) }) {
+                    Icon(
+                        imageVector = Icons.Rounded.ContentCopy,
+                        contentDescription = stringResource(R.string.copy_log),
+                    )
+                }
+                // 保存到指定目录（系统文件选择器，可挑任意位置）
+                IconButton(onClick = {
+                    pendingLog = logText
+                    saveLogLauncher.launch(
+                        Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TITLE, logFileName("ksu-install"))
+                        },
+                    )
+                }) {
+                    Icon(
+                        imageVector = Icons.Rounded.Save,
+                        contentDescription = stringResource(R.string.save_log),
+                    )
+                }
+            }
             Text(
                 text = output.ifBlank { stringResource(R.string.install_preparing) },
                 modifier = Modifier

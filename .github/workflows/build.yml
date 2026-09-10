@@ -1,0 +1,110 @@
+name: Build APK
+
+# 手动触发 + push 到 main 自动触发
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # 必须是 x86_64 runner：Google 只提供 x86_64 的 aapt2 / adb 等原生工具
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK tools
+        uses: android-actions/setup-android@v3
+
+      # 版本号取自本项目实际配置：
+      #   compileSdk 37 + compileSdkMinor 2  ->  platforms;android-37.2
+      #   ndkVersion "30.0.16248370"
+      #   externalNativeBuild.cmake 3.22.1
+      - name: Install SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-37.2" \
+            "build-tools;37.0.0" \
+            "build-tools;36.0.0" \
+            "ndk;30.0.16248370" \
+            "cmake;3.22.1"
+
+      # 仓库里的 wrapper 指向腾讯镜像（为国内本地构建优化），
+      # runner 在境外，改回官方源避免绕路超时。
+      - name: Point Gradle wrapper at the official distribution
+        run: |
+          sed -i -E 's|^distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-9.5.1-bin.zip|' \
+            gradle/wrapper/gradle-wrapper.properties
+          sed -i -E 's|^validateDistributionUrl=.*|validateDistributionUrl=true|' \
+            gradle/wrapper/gradle-wrapper.properties
+          cat gradle/wrapper/gradle-wrapper.properties
+
+      # 同理：国内 maven 镜像在 CI 里只会拖慢解析（Gradle 按声明顺序依次尝试）。
+      # 仅删除 CI 工作区的这几行，不提交、不影响本地构建。
+      - name: Drop CN mirrors for CI resolution
+        run: |
+          sed -i -E '/maven\("https:\/\/maven\.aliyun\.com/d' settings.gradle.kts || true
+          sed -i -E '/maven\("https:\/\/mirrors\.cloud\.tencent\.com/d' settings.gradle.kts || true
+          grep -n "maven\|google()\|mavenCentral()" settings.gradle.kts || true
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # 签名密钥不进仓库：以 base64 存于仓库 Secrets。
+      # 未配置时跳过签名，仍然产出可安装的未签名包（便于先验证构建）。
+      - name: Build release
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          SIGN_ARGS=""
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            SIGN_ARGS="-PKSU_ROOT_STORE_FILE=$RUNNER_TEMP/release.jks \
+                       -PKSU_ROOT_STORE_PASSWORD=$KEYSTORE_PASSWORD \
+                       -PKSU_ROOT_KEY_ALIAS=$KEY_ALIAS \
+                       -PKSU_ROOT_KEY_PASSWORD=$KEY_PASSWORD"
+            echo "==> 已配置签名密钥，产出将直接签名"
+          else
+            echo "==> 未配置签名 Secrets，产出未签名 APK"
+          fi
+          # 命令行 -D 优先级高于 gradle.properties：
+          # 仓库里的 1024m/2workers 是为受限的本地机器调的，而 runner 有 7GB 内存 / 4 核。
+          # 不覆盖的话，R8 与 dex 阶段极易在构建后期 OOM（白等 20~30 分钟）。
+          # 仅影响 CI，不改动仓库文件、不影响你们本地构建。
+          ./gradlew --no-daemon --stacktrace assembleRelease $SIGN_ARGS \
+            -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" \
+            -Dorg.gradle.workers.max=4
+
+      - name: Show outputs
+        if: always()
+        run: |
+          find app/build/outputs -name "*.apk" -printf "%p  %s bytes\n" || true
+          APK=$(find app/build/outputs/apk -name "*.apk" | head -1)
+          if [ -n "$APK" ]; then
+            "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --print-certs "$APK" || true
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: KSuRoot-apk
+          path: app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 14

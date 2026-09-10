@@ -7,7 +7,7 @@
     <string name="device">设备</string><string name="firmware">固件</string><string name="system">系统</string><string name="system_abi">系统 ABI</string>
     <string name="settings">设置</string><string name="version_format">%1$s (%2$d)</string><string name="language">语言</string><string name="language_description">选择应用语言</string><string name="appearance">外观</string><string name="theme_system">系统</string><string name="theme_light">浅色</string><string name="theme_dark">深色</string><string name="material_color">主题</string><string name="material_color_description">更改外观</string>
     <string name="language_system">跟随系统</string>
-    <string name="color_dynamic">系统动态颜色</string><string name="color_blue">蓝色</string><string name="color_violet">紫色</string><string name="color_green">绿色</string><string name="color_orange">橙色</string>
+    <string name="color_dynamic">系统动态颜色</string><string name="color_blue">蓝色</string><string name="color_violet">紫色</string><string name="color_green">绿色</string><string name="color_orange">橙色</string><string name="color_miu_blue">MIUI 蓝</string>
     <string name="history_title">运行记录</string><string name="history_empty_title">暂无运行记录</string><string name="history_empty_description">执行安装后，结果和日志将显示在这里。</string><string name="history_running">运行中</string><string name="history_succeeded">成功</string><string name="history_failed">失败</string><string name="history_detail_title">运行详情</string><string name="history_started">开始: %1$s</string><string name="history_completed">完成: %1$s</string><string name="history_log_empty">暂无日志输出。</string>
     <string name="install_title">安装</string><string name="install_keep_open">安装完成前请保持此界面开启</string><string name="install_live_progress">日志</string><string name="install_preparing">准备中…</string>
     <string name="step_support_title">支持检查</string><string name="step_support_detail">验证设备与固件配置</string><string name="step_download_title">下载</string><string name="step_download_detail">加载支持清单</string><string name="step_exploit_title">内核 exploit</string><string name="step_exploit_detail">获取 bootstrap root</string><string name="step_ksu_title">加载 KernelSU</string><string name="step_ksu_detail">验证模块与控制通道</string>
@@ -27,9 +27,9 @@
     <string name="device_mismatch_title">设备不匹配</string><string name="device_mismatch_body">当前设备为 %1$s，但所选 payload 支持 %2$s。运行可能导致设备停止响应或损坏。</string>
     <string name="kernel_version_mismatch_title">内核版本不匹配</string><string name="kernel_version_mismatch_body">当前内核为 %1$s，但所选 payload 支持 %2$s。偏移量可能不兼容。</string>
     <string name="about">关于</string>
-    <string name="about_title">关于 Root My Galaxy</string>
-    <string name="about_description">关于 Root My Galaxy</string>
-    <string name="about_body">一键安装器，利用内核漏洞对受支持的三星 Galaxy 设备进行 root。</string>
+    <string name="about_title">关于 KSUroot</string>
+    <string name="about_description">关于 KSUroot</string>
+    <string name="about_body">KSuRoot 是一个在设备上直接完成 KernelSU 安装的工具：从你的 boot.img 里解析出 CVE-2026-43499（GhostLock）提权链需要的内核符号偏移，不需要电脑，也不需要 ADB。</string>
     <string name="history_payload">Payload: %1$s</string>
     <string name="export_log">导出日志</string>
     <string name="export_log_saved">日志已保存</string>
@@ -70,4 +70,75 @@
     <string name="status_local_preparing">正在准备本地载荷…</string>
     <string name="activation_hint_title">基于 Root-My-Galaxy 三星</string>
     <string name="activation_hint_body">Mod By hmascs，可正常使用全部功能</string>
+
+    <string name="nav_builder">载荷构建</string>
+    <string name="builder_heading">载荷构建</string>
+    <string name="builder_description">从本机 boot.img 里读出内核符号表，解析出提权链需要的偏移，再把选定的基础动态库改写成适配本机内核的版本。点「开始构建」会先让你选方案：通用方案适用于大部分设备，vivo / iQOO 需要带 vr.ko 反 root 绕过的那一份。全程在设备上完成，不需要联网。</string>
+    <string name="builder_section_input">输入</string>
+    <string name="builder_section_result">构建结果</string>
+    <string name="builder_section_output">产出</string>
+    <string name="builder_boot_image">boot.img</string>
+    <string name="builder_boot_none">尚未选择文件</string>
+    <string name="builder_pick_boot">选择 boot.img</string>
+    <string name="builder_boot_hint">请选择与本机内核版本一致的 boot.img（可从官方固件包里取，或从 /dev/block/by-name/boot 提取）。</string>
+    <string name="builder_run">开始构建</string>
+    <string name="builder_running">构建中…</string>
+    <string name="builder_log_title">构建日志</string>
+    <string name="builder_phase_reading">正在读取 %1$s …</string>
+    <string name="builder_loaded">boot.img %1$d KB · 基础库 %2$d KB</string>
+    <string name="builder_read_failed">读取所选文件失败</string>
+    <string name="builder_no_input">请先选择 boot.img</string>
+    <string name="builder_no_output">偏移已解析，但动态库没有打包成功（详见日志）</string>
+    <string name="builder_kernel">内核: %1$s（%2$s）</string>
+    <string name="builder_base">链接基址: %1$s</string>
+    <string name="builder_symbols">符号数: %1$d</string>
+    <string name="builder_offsets">偏移解析: %1$d / %2$d 项</string>
+    <string name="builder_baseline">基线档位: %1$s</string>
+    <string name="builder_variant">目标画像: %1$s</string>
+    <string name="builder_patch_stats">需要改写: %1$d 项 · 校验通过: %2$d 项</string>
+    <string name="builder_patch_noop">该动态库已与本机内核匹配，产物与内置库逐字节相同。</string>
+    <string name="builder_patch_absent">该动态库未引用 %1$d 项偏移</string>
+    <string name="builder_patch_done">补丁: 需要改写 %1$d 项 · 处理 %2$d 处站点</string>
+    <string name="builder_output_ready">产出动态库: %1$d KB</string>
+    <string name="builder_output_size">大小: %1$s</string>
+    <string name="builder_output_sha">SHA-256: %1$s</string>
+    <string name="builder_set_as_payload">设为自定义载荷</string>
+    <string name="builder_export_so">导出 .so</string>
+    <string name="builder_export_header">导出 target.h</string>
+    <string name="builder_applied">已保存为自定义载荷: %1$s</string>
+    <string name="builder_notices">提示</string>
+    <string name="builder_export_done">已导出</string>
+    <string name="builder_export_failed">导出失败</string>
+
+    <string name="builder_scheme_title">选用哪种方案？</string>
+    <string name="builder_scheme_subtitle">两个方案是同一条 CVE-2026-43499 链，区别在厂商适配。</string>
+    <string name="builder_scheme_universal">通用方案</string>
+    <string name="builder_scheme_universal_detail">适用于大部分 GKI 6.6 设备。不含厂商反 root 绕过，非 vivo/iQOO 设备优先用它。</string>
+    <string name="builder_scheme_vivo">vivo / iQOO（vr.ko 反 su 绕过）</string>
+    <string name="builder_scheme_vivo_detail">额外带 vr.ko 反 root 绕过。vivo / iQOO 上通用链会被拦，必须选这项。</string>
+    <string name="builder_scheme_recommended">推荐</string>
+    <string name="builder_saved_download">已保存到 %1$s</string>
+    <string name="builder_save_download_failed">写入下载目录失败</string>
+
+    <string name="builder_base_library">基础库: %1$s · %2$s</string>
+    <string name="builder_applied_state">已写入「自定义动态库」</string>
+
+    <string name="ksuroot_card_title">KSuRoot 仓库</string>
+    <string name="ksuroot_card_description">本软件的源代码与使用说明。</string>
+    <string name="device_kernel">内核版本</string>
+    <string name="kernel_support_ok">支持 GhostLock 免 ADB</string>
+    <string name="kernel_support_need_shizuku">低于 6.6 · 需 Shizuku（ADB）</string>
+    <string name="kernel_gate_title">内核版本过低</string>
+    <string name="kernel_gate_body">免 ADB 提权（GhostLock / CVE-2026-43499）需要 6.6 及以上内核（6.6 与 6.12 系均已验证）。本机内核是 %1$s，低于 6.6，只能走 ADB 那条路。</string>
+    <string name="kernel_gate_shizuku_hint">请在「设置」中打开 Shizuku 授权，再回来安装。</string>
+    <string name="kernel_gate_wait">请稍候（%1$d）</string>
+    <string name="kernel_gate_continue">仍然继续</string>
+
+    <string name="history_recorded">已记录</string>
+    <string name="copy_log">复制日志</string>
+    <string name="save_log">保存日志</string>
+    <string name="log_copied">日志已复制到剪贴板</string>
+    <string name="log_copy_failed">复制日志失败</string>
+    <string name="log_saved">日志已保存</string>
+    <string name="log_save_failed">保存日志失败</string>
 </resources>
