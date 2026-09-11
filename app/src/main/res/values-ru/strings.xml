@@ -92,7 +92,7 @@
     <string name="log_ksu_staged">[+] Подготовка KernelSU завершена</string>
     <string name="log_ksu_control_verified">[+] Канал управления KernelSU проверен</string>
     <string name="error_helper_unavailable">Вспомогательный bootstrap-файл не является исполняемым</string>
-    <string name="error_exploit_stalled">Журнал эксплойта не обновлялся в течение 90 секунд</string>
+    <string name="error_exploit_stalled">Журнал эксплойта не обновлялся в течение 180 секунд</string>
     <string name="error_exploit_timeout">Эксплойт превысил лимит времени в 15 минут</string>
     <string name="error_payload_exit">Ошибка выполнения payload: %1$d%2$s</string>
     <string name="error_success_marker">Маркеры успешного выполнения эксплойта не найдены</string>

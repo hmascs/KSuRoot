@@ -53,8 +53,8 @@ enum class PayloadScheme(
         library = "libbs.so",
         baselineId = "PD2520-BP2A.250605.031.A3",
         filePrefix = "payload-vivo",
-        // 就是 boxiaolanya2008 仓库 release v1.0.0 里的 preload.so
-        versionLabel = "release v1.0.0（稳定，提权稍慢）",
+        // 就是 boxiaolanya2008 仓库 release v1.3.0 里的 preload.so（176544 字节）
+        versionLabel = "release v1.3.0",
     ),
 }
 

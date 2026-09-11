@@ -89,7 +89,7 @@
     <string name="log_ksu_staged">[+] Préparation de KernelSU terminée</string>
     <string name="log_ksu_control_verified">[+] Canal de contrôle KernelSU vérifié</string>
     <string name="error_helper_unavailable">L\'assistant de démarrage n\'est pas exécutable</string>
-    <string name="error_exploit_stalled">Le journal de l\'exploit n\'a pas avancé depuis 90 secondes</string>
+    <string name="error_exploit_stalled">Le journal de l\'exploit n\'a pas avancé depuis 180 secondes</string>
     <string name="error_exploit_timeout">L\'exploit a dépassé la limite de 15 minutes</string>
     <string name="error_payload_exit">L\'exécution de la charge utile a échoué : %1$d%2$s</string>
     <string name="error_success_marker">Les marqueurs de succès de l\'exploit n\'ont pas été trouvés</string>

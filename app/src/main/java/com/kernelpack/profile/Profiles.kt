@@ -234,7 +234,14 @@ object BaselineProfiles {
             "SYS_EXIT_TP" to 0x22a2220L,
             "RVH_COMMIT_CREDS_TP" to 0x22bbc70L,
         ),
-        sha256 = "87bf839fc8524ed25831a22166ebc6cef898e7ddc77ce77736add5ca49b78b61",
+        // v1.3.0 的 preload.so（176544 字节）。
+        //
+        // 注：v1.0.0（162328 字节，sha256 87bf839f…）用的是**同一套偏移** ——
+        // 上游 PD2520 target.h 在两者之间没有改动，实测也确认：拿同一份 boot.img
+        // 分别打两个版本，都是「已替换 7 项 · 9 处 · 旧值残留 0」，
+        // 所以这份基线对两个版本都成立；这里只登记当前随包发布的那一份，
+        // 另一版本的 .so 若作为自定义载荷导入，会走 variantLabel 文本匹配命中同一条基线。
+        sha256 = "8c3410cbc7dce25df3274c0e35d293cb38d7ad2384af7ecc549a3400c50695d9",
     )
 
     /**

@@ -96,7 +96,7 @@
     <string name="log_ksu_control_verified">[+] KernelSU 控制通道已驗證</string>
 
     <string name="error_helper_unavailable">無法執行 bootstrap helper</string>
-    <string name="error_exploit_stalled">Exploit 日誌已 90 秒未更新</string>
+    <string name="error_exploit_stalled">Exploit 日誌已 180 秒未更新</string>
     <string name="error_exploit_timeout">Exploit 超過 15 分鐘限制</string>
     <string name="error_payload_exit">Payload 執行錯誤：%1$d%2$s</string>
     <string name="error_success_marker">未找到 exploit 成功標記</string>

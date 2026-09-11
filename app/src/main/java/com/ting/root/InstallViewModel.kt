@@ -534,7 +534,20 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
 
     companion object {
         private const val EXPLOIT_ATTEMPTS = "24"
-        private const val EXPLOIT_STALL_MILLIS = 90_000L
+        /**
+         * 日志「多久没有新输出」就判定卡死并放弃（杀掉载荷进程）。
+         *
+         * 90s → **180s**：这条链在真机上有几段天然的长静默 ——
+         * KASLR 泄露要等 pselect 路由（[=] 每次尝试 8s 量级、预算 24 次），
+         * 之后的堆喷 / pipe 布局又是长时间不打印的纯计算。90s 会在这些安静段
+         * 被误判成卡死而主动 kill，日志上看起来就是"莫名退出"。
+         *
+         * 注意这是**应用侧的看门狗**，与载荷自己的两个内部超时不是一回事：
+         * `P0_ATTEMPT_TIMEOUT_SEC=45` / `EXPLOIT_ATTEMPT_TIMEOUT_SEC=120`
+         * 是编译进载荷里、由它自己控制的单次尝试上限（见下方 environment()）。
+         * 总时长上限仍由 [EXPLOIT_TOTAL_MILLIS]（15 分钟）兜底。
+         */
+        private const val EXPLOIT_STALL_MILLIS = 180_000L
         private const val EXPLOIT_TOTAL_MILLIS = 900_000L
         private const val INSTALL_RECEIPT = "install_receipt"
         private const val RECEIPT_BOOT_TOKEN = "kernel_boot_id"

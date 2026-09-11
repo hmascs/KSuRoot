@@ -1,10 +1,12 @@
 # KSuRoot
 
+> ⚠️ **温馨提示**：蓝厂机型调度策略较为严格，提权时子进程易被系统回收。请先在「开发者选项」中开启「停止限制子进程」后再执行提权，成功率更高。
+
 基于 **CVE-2026-43499（GhostLock）** 内核漏洞的一键 KernelSU 提权工具。
 
 本分支以 KSuRoot 为蓝本，完整同步 [Root-My-Galaxy](https://github.com/BuSung-dev/Root-My-Galaxy) v0.2.6 主线更新，并在此基础上增加了**载荷构建**、**内置动态库修复**与一整套液态玻璃 UI。
 
-> Mod by **hmascs** · 版本 **3.0.1**（versionCode 301）· Apache-2.0
+> Mod by **hmascs** · 版本 **3.0.2**（versionCode 302）· Apache-2.0
 > 仓库：<https://github.com/hmascs/KSuRoot>
 
 ---
@@ -40,7 +42,7 @@
 
 「内置动态库不可用」其实是**三层**原因叠在一起，前两层是隐患，第三层才是真正卡住安装的那一步：
 
-1. **版本**：内置的是上游 v1.3.0 → 固定为 **v1.0.0**（`preload.so`，162328 字节，SHA-256 `87bf839f…b861`）—— 提权速度稍慢但**稳定**
+1. **版本**：内置的是上游 **v1.3.0**（`preload.so`，176544 字节，SHA-256 `8c3410cb…95d9`）
 2. **打包被 strip**：AGP 默认会 strip `jniLibs` 里的 `.so`（实测 `libbs.so` 162328 → 142848 字节），预编译载荷被隐式改写；现已用 `keepDebugSymbols` 保住原件
 3. **一行多余的 `chmod`（真凶）**：内置载荷住在 `applicationInfo.nativeLibraryDir`，那里的文件是安装器**以 system 身份**提取的：
 

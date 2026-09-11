@@ -83,7 +83,7 @@
     <string name="log_ksu_staged">[+] Đã chuẩn bị KernelSU</string>
     <string name="log_ksu_control_verified">[+] Đã xác minh kênh điều khiển KernelSU</string>
     <string name="error_helper_unavailable">Không thể chạy trình trợ giúp khởi tạo</string>
-    <string name="error_exploit_stalled">Nhật ký khai thác không cập nhật trong 90 giây</string>
+    <string name="error_exploit_stalled">Nhật ký khai thác không cập nhật trong 180 giây</string>
     <string name="error_exploit_timeout">Khai thác vượt quá giới hạn 15 phút</string>
     <string name="error_payload_exit">Lỗi thực thi payload: %1$d%2$s</string>
     <string name="error_success_marker">Không tìm thấy dấu hiệu thành công của khai thác</string>
