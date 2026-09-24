@@ -1,5 +1,8 @@
 package com.ting.root
 
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.window.DialogWindowProvider
+
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -80,6 +83,10 @@ import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material.icons.rounded.Warning
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -229,7 +236,6 @@ class MainActivity : ComponentActivity() {
                         AppPreferences.setAllowTestKernel(this, enabled)
                         allowTestKernel = enabled
                     },
-                    openInstaller = { profileId ->
                     onLogDetailedChanged = { enabled ->
                         AppPreferences.setLogDetailed(this, enabled)
                         logDetailed = enabled
@@ -741,7 +747,6 @@ private fun RootApp(
                 )
                 }
             
-            }
 
             // ── miuix Overlay 组件必须在 Scaffold 内部 ──
             // OverlayDialog/OverlayBottomSheet 依赖 Scaffold 提供的
@@ -874,6 +879,12 @@ private fun RootApp(
                 }
 }
     }
+}
+
+@Composable
+private fun DialogDimAmount(amount: Float) {
+    val window = (LocalView.current.parent as DialogWindowProvider).window
+    SideEffect { window.setDimAmount(amount) }
 }
 
 @Composable
