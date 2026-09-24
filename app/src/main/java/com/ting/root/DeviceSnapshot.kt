@@ -14,6 +14,14 @@ data class DeviceSnapshot(
     val androidRelease: String,
     val sdk: Int,
     val abi: String,
+    /** `Build.VERSION.SECURITY_PATCH`，如 `2026-06-01`；取不到时为空串。 */
+    /**
+     * 安全补丁月份串。
+     *
+     * 给默认值是刻意的：漏传时得到空串 → `PatchLevel` 判 `NONE` → **不出警告**。
+     * 反过来（默认某个月份）会凭空造出假警报，而"假警报比不报更糟"是本工程既有原则。
+     */
+    val securityPatch: String = "",
     val pageSize: Long,
 ) {
     val targetLabel: String
@@ -71,6 +79,7 @@ data class DeviceSnapshot(
                 androidRelease = Build.VERSION.RELEASE,
                 sdk = Build.VERSION.SDK_INT,
                 abi = Build.SUPPORTED_ABIS.firstOrNull().orEmpty(),
+                securityPatch = Build.VERSION.SECURITY_PATCH.orEmpty(),
                 pageSize = Os.sysconf(OsConstants._SC_PAGESIZE),
             )
         }

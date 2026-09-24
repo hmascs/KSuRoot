@@ -181,4 +181,5 @@
     <string name="install_confirm_manual_payload">Kullanılacak yük: %1$s (sizin seçiminiz)</string>
     <string name="log_manual_payload">Elle seçilen yük: %1$s (%2$s için otomatik eşleşme sonucu değil)</string>
     <string name="payload_note_exec_mt6895">4,9 MB; çekirdek sürümünün son üç hanesini argüman olarak alır — payload listesinden elle seçin</string>
+    <string name="device_security_patch">Android security patch</string>
 </resources>

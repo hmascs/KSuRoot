@@ -187,4 +187,5 @@
     <string name="install_confirm_manual_payload">Charge utile : %1$s (choisie par vous)</string>
     <string name="log_manual_payload">Charge utile manuelle : %1$s (pas le résultat de la correspondance automatique pour %2$s)</string>
     <string name="payload_note_exec_mt6895">4,9 Mo ; prend les trois derniers chiffres de la version du noyau en argument — sélectionnez-le manuellement dans la liste</string>
+    <string name="device_security_patch">Android security patch</string>
 </resources>

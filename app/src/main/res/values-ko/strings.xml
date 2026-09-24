@@ -77,4 +77,5 @@
     <string name="install_confirm_manual_payload">사용할 페이로드: %1$s (직접 지정)</string>
     <string name="log_manual_payload">수동 지정 페이로드: %1$s (%2$s의 자동 일치 결과가 아님)</string>
     <string name="payload_note_exec_mt6895">4.9 MB. 커널 버전 마지막 3자리를 인수로 받습니다. 페이로드 목록에서 직접 선택하세요</string>
+    <string name="device_security_patch">Android security patch</string>
 </resources>

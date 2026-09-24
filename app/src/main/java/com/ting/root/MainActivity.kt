@@ -375,6 +375,8 @@ private fun RootApp(
     var showInstallConfirmation by remember { mutableStateOf(false) }
     // 内核低于 6.6：按安装前先提示"免 ADB 这条路走不通"。
     var kernelTooOld by remember { mutableStateOf(false) }
+    // 安全补丁提示：非 null 时弹窗。**只提示，不阻断**（见 PatchLevel 的说明）。
+    var patchRisk by remember { mutableStateOf(PatchRisk.NONE) }
     var payloadSource by remember { mutableStateOf(AppPreferences.payloadSource(context)) }
     var customPayload by remember { mutableStateOf(CustomPayloadStore.current(context)) }
     // 用户在机型清单里手动点选的载荷（`jniLibs` 文件名）。`null` = 不指定，按设备自动匹配。
@@ -401,6 +403,23 @@ private fun RootApp(
 
     // 点「开始构建」先弹方案选择（从下往上），选完才真正开跑。
     var showSchemeSheet by remember { mutableStateOf(false) }
+
+    if (patchRisk != PatchRisk.NONE) {
+        PatchWarningDialog(
+            risk = patchRisk,
+            patch = device.securityPatch,
+            onDismiss = { patchRisk = PatchRisk.NONE },
+            onContinue = {
+                patchRisk = PatchRisk.NONE
+                // 用户已读并确认 → 继续走原来的安装前置判断（补丁本身不构成拦截）
+                if (!device.supportsGhostLockWithoutAdb && !shizukuMode) {
+                    kernelTooOld = true
+                } else {
+                    showInstallConfirmation = true
+                }
+            },
+        )
+    }
 
     // ── 移交 root ──────────────────────────────────────────────────────
     // 三态：null = 还没检测完 / false = 没有 root / true = 有 root。
@@ -686,9 +705,12 @@ private fun RootApp(
                             onHandoffRoot = { showManagerSheet = true },
                             onManualPayloadChanged = { library -> manualPayload = library },
                             onInstall = {
-                                // 内核 < 6.6 且还没开 Shizuku：先提示"免 ADB 走不通"。
-                                // 已经开了 Shizuku 的机器不必再拦（那正是提示里让做的事）。
-                                if (!device.supportsGhostLockWithoutAdb && !shizukuMode) {
+                                // ① 先看安全补丁：06 → 黄叹号，≥07 → 红叹号。**两级都只提示**，
+                                //    确认键有 10 秒冷却（让人把话读完），冷却完照常继续。
+                                if (PatchLevel.evaluate(device.securityPatch).hasWarning) {
+                                    patchRisk = PatchLevel.evaluate(device.securityPatch)
+                                } else if (!device.supportsGhostLockWithoutAdb && !shizukuMode) {
+                                    // ② 内核 < 6.6 且还没开 Shizuku：提示"免 ADB 走不通"。
                                     kernelTooOld = true
                                 } else {
                                     showInstallConfirmation = true
@@ -970,7 +992,6 @@ private fun OverviewPage(
             }
         }
         item { Box(Modifier.staggeredEntry(4)) { DeviceCard(device) } }
-        item { Box(Modifier.staggeredEntry(5)) { HowItWorksCard() } }
         // 主页最底部的「移交 root」—— 载荷拿到的 root 只活在当前进程里，
         // 想让它常驻就得交给一个 Root 管理器，入口放在最下面（属于"收尾动作"）。
         item {
@@ -1546,44 +1567,6 @@ private fun queryOpenable(context: Context, uri: Uri): Pair<String, Long> = try 
     uri.lastPathSegment.orEmpty() to -1L
 }
 
-@Composable
-private fun HowItWorksCard() {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(
-            modifier = Modifier.padding(Spacing.card),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Text(stringResource(R.string.how_it_works), style = MaterialTheme.typography.titleMedium)
-            installerSteps.forEach { step ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Surface(
-                        modifier = Modifier.size(36.dp),
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSurface,
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(step.icon, contentDescription = null, modifier = Modifier.size(20.dp))
-                        }
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(stringResource(step.title), style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            stringResource(step.detail),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
 
 @Composable
 private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Unit) {
@@ -1732,7 +1715,18 @@ private fun DeviceCard(device: DeviceSnapshot) {
             InfoRow(Icons.Rounded.Memory, stringResource(R.string.device), "${device.manufacturer} ${device.model} (${device.device})")
             InfoRow(Icons.Rounded.Code, stringResource(R.string.firmware), device.buildId)
             InfoRow(Icons.Rounded.Info, stringResource(R.string.system), "Android ${device.androidRelease} (API ${device.sdk})")
-            InfoRow(Icons.Rounded.Security, stringResource(R.string.system_abi), "${device.abi} (${device.pageSize / 1024}K)")
+            // [2026-09-24 需求] 原「系统 ABI」行改为「Android 安全补丁」。
+            // 补丁月份直接决定幽灵锁漏洞还能不能用，比 ABI 更该占据这一行。
+            // 感叹号规则见 PatchLevel：06 → ⚠（只提示），≥07 → ❗（提示大概率不可用）。
+            InfoRow(
+                icon = if (PatchLevel.evaluate(device.securityPatch).hasWarning) {
+                    Icons.Rounded.Warning
+                } else {
+                    Icons.Rounded.Security
+                },
+                label = stringResource(R.string.device_security_patch),
+                value = PatchLevel.display(device.securityPatch),
+            )
             // 内核版本单独一行，并直接给出「免 ADB 提权能不能用」的判定 ——
             // 这比只显示一个版本号有用得多：用户在按安装之前就该知道路走哪条。
             InfoRow(
@@ -2488,6 +2482,75 @@ private fun schemeTitle(scheme: PayloadScheme): Int = when (scheme) {
 private fun schemeDetail(scheme: PayloadScheme): Int = when (scheme) {
     PayloadScheme.Universal -> R.string.builder_scheme_universal_detail
     PayloadScheme.VivoVrKo -> R.string.builder_scheme_vivo_detail
+}
+
+/**
+ * 安全补丁警告框（06 → 黄叹号 / ≥07 → 红叹号）。
+ *
+ * [为什么只弹窗、不拦截] 我们的判据只有"月份"，**没有**官方补丁映射表。
+ * 拿一个推断去阻止用户操作，就是本工程一直在防的"假警报"；
+ * 而且用户可能在已打补丁的设备上验证别的东西。所以两级都只提示。
+ *
+ * [确认键 10 秒冷却] 见 [PatchWarningCooldownSeconds] —— 冷却的是手速，不是权利。
+ */
+@Composable
+private fun PatchWarningDialog(
+    risk: PatchRisk,
+    patch: String,
+    onDismiss: () -> Unit,
+    onContinue: () -> Unit,
+) {
+    var remaining by remember { mutableIntStateOf(PatchWarningCooldownSeconds) }
+    LaunchedEffect(risk, patch) {
+        while (remaining > 0) {
+            delay(1000)
+            remaining -= 1
+        }
+    }
+    val red = risk == PatchRisk.LIKELY_FIXED
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                Icons.Rounded.Warning,
+                contentDescription = null,
+                tint = if (red) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary,
+            )
+        },
+        title = {
+            DialogDimAmount(0.24f)
+            Text(
+                text = if (red) "七月份安全补丁已合并幽灵锁修复" else "六月安全补丁可能已合并幽灵锁修复",
+                color = if (red) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = if (red) {
+                        "当前安全补丁：$patch\n\n" +
+                            "七月份安全补丁已经合并幽灵锁漏洞补丁，大概率无法正常使用。" +
+                            "提权很可能跑不完或中途失败，属于预期现象，不是本工具坏了。"
+                    } else {
+                        "当前安全补丁：$patch\n\n" +
+                            "6 月安全补丁可能已经合并幽灵锁漏洞的修复。" +
+                            "能不能成功要实测才知道 —— 这里只是提醒，不做任何限制。"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        },
+        confirmButton = {
+            FilledTonalButton(onClick = onContinue, enabled = remaining == 0) {
+                Text(
+                    if (remaining > 0) "请稍候（$remaining）" else "我已了解，继续",
+                )
+            }
+        },
+        dismissButton = {
+            Button(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        },
+    )
 }
 
 /**
@@ -3350,6 +3413,16 @@ private fun KernelTooOldDialog(
 
 /** 内核提示框确认按钮的倒计时秒数。 */
 private const val CountdownSeconds = 3
+
+/**
+ * 安全补丁提示框确认键的冷却秒数。
+ *
+ * 为什么比内核提示（3 秒）长得多：那条是"这条路走不通，要不要换条路"，
+ * 用户本来就想赶紧换；这条是"你这台机器的补丁可能已经把这个漏洞修掉了，
+ * 大概率白跑"—— 10 秒是让人**真的把这句话读完**的最低成本，
+ * 而且它只是冷却，不是禁止（读完照样能点继续）。
+ */
+private const val PatchWarningCooldownSeconds = 10
 
 @Composable
 private fun AboutDialog(show: Boolean, onDismiss: () -> Unit) {

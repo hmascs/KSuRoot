@@ -32,6 +32,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Article
+import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.Save
@@ -166,9 +168,11 @@ private fun InstallScreen(
     // 之前用行数当 key，简略模式下去重会把新行合并掉、行数不变，滚动就停住；
     // 用内容做 key 则任何一次可见变化都会滚，逻辑与"用户看到新东西"完全一致。
     // 载荷每秒刷几十行也没关系——key 只是字符串比较，不触发重组以外的开销。
-    val visibleLog = installState.displayLog
-    LaunchedEffect(visibleLog) {
-        if (visibleLog.isEmpty()) return@LaunchedEffect
+    // 滚动触发键：译文内容 + 原始日志长度。
+    // 只盯译文的话，切到「原文」模式后译文不再变化，滚动就停住不跟了。
+    val scrollKey = installState.displayLog + "|" + installState.log.length
+    LaunchedEffect(scrollKey) {
+        if (scrollKey.length <= 1) return@LaunchedEffect
         logScrollState.scrollTo(logScrollState.maxValue)
     }
 
@@ -400,6 +404,11 @@ private fun InstallerLog(
     // 贴给别人排查问题时，原始输出才有用；译文只负责让当前用户看懂。
     val exportText = rawLog.ifBlank { preparingText }
     var pendingLog by remember { mutableStateOf("") }
+    // [2026-09-24 需求] 默认显示**原始日志**，把日志显示调回来。
+    // 语义译文（ExploitLogDigest）是给"只想看进度"的人用的，一键可切；
+    // 但排查问题时必须能立刻看到原文，不该再多点两次。
+    var showRaw by remember { mutableStateOf(true) }
+    val shown = if (showRaw) exportText else visibleText
     val saveLogLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
@@ -424,6 +433,13 @@ private fun InstallerLog(
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f),
                 )
+                // 原文 / 译文 切换
+                IconButton(onClick = { showRaw = !showRaw }) {
+                    Icon(
+                        imageVector = if (showRaw) Icons.Rounded.Article else Icons.Rounded.Translate,
+                        contentDescription = if (showRaw) "切换到译文" else "切换到原文",
+                    )
+                }
                 // 一键复制：出问题时直接把**原始**日志贴到群里/issue 里
                 IconButton(onClick = { context.copyLogToClipboard(exportText) }) {
                     Icon(
@@ -449,7 +465,7 @@ private fun InstallerLog(
                 }
             }
             Text(
-                text = visibleText,
+                text = shown,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)

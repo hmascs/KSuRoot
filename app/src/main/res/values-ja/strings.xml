@@ -76,4 +76,5 @@
     <string name="install_confirm_manual_payload">使用するペイロード：%1$s（手動指定）</string>
     <string name="log_manual_payload">手動指定ペイロード：%1$s（%2$s の自動一致結果ではありません）</string>
     <string name="payload_note_exec_mt6895">4.9 MB。カーネル版の下 3 桁を引数に取ります。ペイロード一覧から手動で選択してください</string>
+    <string name="device_security_patch">Android security patch</string>
 </resources>

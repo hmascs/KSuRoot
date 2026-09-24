@@ -314,4 +314,5 @@
     <string name="payload_note_pie_exec">PIE executable (not a .so); invoked differently from other payloads — select it manually from the payload list</string>
     <string name="payload_note_exec_8g2">1.8 MB standalone executable payload; select it manually from the payload list</string>
     <string name="payload_note_exec_mt6895">4.9 MB; takes the last three digits of the kernel version as an argument — select it manually from the payload list</string>
+    <string name="device_security_patch">Android security patch</string>
 </resources>

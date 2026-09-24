@@ -190,4 +190,5 @@
     <string name="install_confirm_manual_payload">Будет использован пейлоад: %1$s (выбран вручную)</string>
     <string name="log_manual_payload">Пейлоад выбран вручную: %1$s (не результат автосопоставления для %2$s)</string>
     <string name="payload_note_exec_mt6895">4.9 MB; принимает последние три цифры версии ядра как аргумент — выберите его вручную в списке payload</string>
+    <string name="device_security_patch">Android security patch</string>
 </resources>

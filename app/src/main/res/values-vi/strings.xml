@@ -181,4 +181,5 @@
     <string name="install_confirm_manual_payload">Payload sẽ dùng: %1$s (do bạn chọn)</string>
     <string name="log_manual_payload">Payload chỉ định thủ công: %1$s (không phải kết quả tự khớp cho %2$s)</string>
     <string name="payload_note_exec_mt6895">4,9 MB; nhận ba chữ số cuối của phiên bản nhân làm đối số — hãy chọn thủ công trong danh sách payload</string>
+    <string name="device_security_patch">Android security patch</string>
 </resources>
