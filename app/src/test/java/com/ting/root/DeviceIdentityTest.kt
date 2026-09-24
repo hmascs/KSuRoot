@@ -27,8 +27,33 @@ class DeviceIdentityTest {
 
     @Test
     fun `标准属性为空时回落厂商自定义`() {
-        val props = mapOf("ro.vivo.product.model" to "iQOO Neo10 Pro+")
-        assertEquals("iQOO Neo10 Pro+", DeviceIdentity.marketName { props[it] })
+        // 注意：这里**不能**用 ro.vivo.product.model —— 本机实测它存的是代号，
+        // 已被移出候选（见 DeviceIdentityTest 的回归用例）。
+        val props = mapOf("ro.oppo.market.name" to "OPPO Find X9 Pro")
+        assertEquals("OPPO Find X9 Pro", DeviceIdentity.marketName { props[it] })
+    }
+
+    @Test
+    fun `回归：属性里存的是代号时不许当市场名`() {
+        // 本机实测：ro.vivo.product.model = "PD2463"（代号！）
+        // 曾经把它列进候选 → 界面把代号显示成设备名，正是用户抱怨的那个问题。
+        assertNull(
+            "代号不能当市场名",
+            DeviceIdentity.marketName { if (it == "ro.vivo.product.model") "PD2463" else null },
+        )
+        assertNull(
+            "型号代码也不能当市场名",
+            DeviceIdentity.marketName { if (it == "ro.product.marketname") "V2463A" else null },
+        )
+    }
+
+    @Test
+    fun `代号被跳过时继续往后找真正的名字`() {
+        val props = mapOf(
+            "ro.product.marketname" to "PD2463",   // 代码 → 跳过
+            "ro.config.marketing_name" to "iQOO 13",
+        )
+        assertEquals("iQOO 13", DeviceIdentity.marketName { props[it] })
     }
 
     @Test

@@ -53,7 +53,10 @@ object DeviceIdentity {
         "ro.config.marketing_name",
         "ro.config.market_name",
         // 厂商自定义
-        "ro.vivo.product.model",     // vivo / iQOO
+        // [勘误] 这里原来有 `ro.vivo.product.model`，但**本机实测它返回的是代号**
+        // （V2463A/PD2463 那台机器上 = "PD2463"），不是市场名。把它当名字用，
+        // 界面就会把代号显示成设备名 —— 正是要避免的那件事。
+        // 已移除；即便有厂商把市场名放这里，下面的 looksLikeCode 兜底也会把它拦下。
         "ro.vivo.market.name",
         "ro.oppo.market.name",       // OPPO / realme / 一加
         "ro.oplus.market.name",
@@ -93,7 +96,12 @@ object DeviceIdentity {
     fun marketName(prop: (String) -> String?): String? {
         for (key in MARKET_NAME_PROPS) {
             val v = prop(key)?.trim().orEmpty()
-            if (v.isNotEmpty()) return v
+            if (v.isEmpty()) continue
+            // [兜底] 值本身像型号代码（`PD2463` / `V2463A`）就不认它是市场名。
+            // 与其把代号当名字显示（用户会以为识别对了），不如如实返回 null，
+            // 让界面去标注"这是型号代码"。
+            if (looksLikeCode(v)) continue
+            return v
         }
         return null
     }
