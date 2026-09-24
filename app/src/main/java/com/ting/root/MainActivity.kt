@@ -975,6 +975,29 @@ private fun OverviewPage(
                 }
             }
         }
+        // 7 月及以后：在**提权按钮（安装卡）正上方**常驻一条红字，不用点开弹窗就能看见。
+        // 6 月的黄提示**不做常驻** —— 它只是"可能"，常驻会变成噪声。
+        if (PatchLevel.evaluate(device.securityPatch) == PatchRisk.LIKELY_FIXED) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        Icons.Rounded.Warning,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                    Text(
+                        text = "安全补丁已合并幽灵锁修复，大概率无法正常使用",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
         item { Box(Modifier.staggeredEntry(1)) { InstallStatusCard(installState, onInstall) } }
         item { Box(Modifier.staggeredEntry(2)) { ActivationHintCard() } }
         item {
@@ -1718,15 +1741,22 @@ private fun DeviceCard(device: DeviceSnapshot) {
             // [2026-09-24 需求] 原「系统 ABI」行改为「Android 安全补丁」。
             // 补丁月份直接决定幽灵锁漏洞还能不能用，比 ABI 更该占据这一行。
             // 感叹号规则见 PatchLevel：06 → ⚠（只提示），≥07 → ❗（提示大概率不可用）。
-            InfoRow(
-                icon = if (PatchLevel.evaluate(device.securityPatch).hasWarning) {
-                    Icons.Rounded.Warning
-                } else {
-                    Icons.Rounded.Security
-                },
-                label = stringResource(R.string.device_security_patch),
-                value = PatchLevel.display(device.securityPatch),
-            )
+            run {
+                val risk = PatchLevel.evaluate(device.securityPatch)
+                InfoRow(
+                    icon = if (risk.hasWarning) Icons.Rounded.Warning else Icons.Rounded.Security,
+                    label = stringResource(R.string.device_security_patch),
+                    value = PatchLevel.display(device.securityPatch),
+                    // 06 → 黄；≥07 → 红。用 tint 而不是 emoji 字符：
+                    // emoji 的字形/颜色由系统字体决定，实测渲染成白色，区分不出来。
+                    // 06 → 黄；07 及以后 → 红
+                    tint = when (risk) {
+                        PatchRisk.LIKELY_FIXED -> MaterialTheme.colorScheme.error
+                        PatchRisk.MAYBE_FIXED -> PatchWarnYellow
+                        PatchRisk.NONE -> Color.Unspecified
+                    },
+                )
+            }
             // 内核版本单独一行，并直接给出「免 ADB 提权能不能用」的判定 ——
             // 这比只显示一个版本号有用得多：用户在按安装之前就该知道路走哪条。
             InfoRow(
@@ -1745,9 +1775,19 @@ private fun DeviceCard(device: DeviceSnapshot) {
 }
 
 @Composable
-private fun InfoRow(icon: ImageVector, label: String, value: String) {
+private fun InfoRow(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    /** 图标颜色。默认主色；安全补丁告警时传黄/红，好让"感叹号"真的有颜色。 */
+    tint: Color = Color.Unspecified,
+) {
     Row(horizontalArrangement = Arrangement.spacedBy(13.dp)) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = if (tint == Color.Unspecified) MaterialTheme.colorScheme.primary else tint,
+        )
         Column {
             Text(label, style = MaterialTheme.typography.titleSmall)
             Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -2500,21 +2540,25 @@ private fun PatchWarningDialog(
     onDismiss: () -> Unit,
     onContinue: () -> Unit,
 ) {
-    var remaining by remember { mutableIntStateOf(PatchWarningCooldownSeconds) }
+    val red = risk == PatchRisk.LIKELY_FIXED
+    // [2026-09-24 修正] 冷却**只给 7 月及以后**（红色那一档）。
+    // 6 月是黄色"可能已修复"，本身不确定，没必要卡用户 10 秒。
+    var remaining by remember(risk, patch) {
+        mutableIntStateOf(if (red) PatchWarningCooldownSeconds else 0)
+    }
     LaunchedEffect(risk, patch) {
         while (remaining > 0) {
             delay(1000)
             remaining -= 1
         }
     }
-    val red = risk == PatchRisk.LIKELY_FIXED
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = {
             Icon(
                 Icons.Rounded.Warning,
                 contentDescription = null,
-                tint = if (red) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.tertiary,
+                tint = if (red) MaterialTheme.colorScheme.error else PatchWarnYellow,
             )
         },
         title = {
@@ -3423,6 +3467,14 @@ private const val CountdownSeconds = 3
  * 而且它只是冷却，不是禁止（读完照样能点继续）。
  */
 private const val PatchWarningCooldownSeconds = 10
+
+/**
+ * 六月补丁的告警黄。
+ *
+ * 不用 `colorScheme.tertiary`：主题里 tertiary 不保证是黄色（本主题偏紫），
+ * 那样"黄色感叹号"会变成别的颜色。这里给一个明暗背景下都够醒目的琥珀黄。
+ */
+private val PatchWarnYellow = Color(0xFFF5A623)
 
 @Composable
 private fun AboutDialog(show: Boolean, onDismiss: () -> Unit) {

@@ -70,13 +70,13 @@ object PatchLevel {
         }
     }
 
-    /** 界面上那一行显示的文字：补丁串 + 感叹号标记。 */
-    fun display(patch: String?): String {
-        val raw = patch?.trim().orEmpty().ifBlank { "未知" }
-        return when (evaluate(patch)) {
-            PatchRisk.NONE -> raw
-            PatchRisk.MAYBE_FIXED -> "⚠ $raw"
-            PatchRisk.LIKELY_FIXED -> "❗ $raw"
-        }
-    }
+    /**
+     * 界面上那一行显示的文字。
+     *
+     * [2026-09-24 修正] 原来在这里拼 `⚠` / `❗` 字符 —— 实测在设备上渲染成**白色**，
+     * 看不出黄/红之分（那两个码位是 emoji 变体，字形与颜色由系统字体决定，我们控制不了）。
+     * 现在这里只出纯文本，**颜色一律交给带 tint 的图标**去表达。
+     */
+    fun display(patch: String?): String =
+        patch?.trim().orEmpty().ifBlank { "未知" }
 }

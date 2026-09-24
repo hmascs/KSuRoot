@@ -45,11 +45,15 @@ class PatchLevelTest {
     }
 
     @Test
-    fun `显示文本带感叹号且能区分两级`() {
+    fun `显示文本是纯文本 —— 颜色交给图标`() {
+        // 回归：曾经在这里拼 ⚠/❗，在设备上渲染成白色，两级区分不出来。
         assertEquals("2026-05-01", PatchLevel.display("2026-05-01"))
-        assertTrue(PatchLevel.display("2026-06-01").contains("⚠"))
-        assertTrue(PatchLevel.display("2026-07-01").contains("❗"))
-        assertFalse(PatchLevel.display("2026-07-01").contains("⚠"))
+        assertEquals("2026-06-01", PatchLevel.display("2026-06-01"))
+        assertEquals("2026-07-01", PatchLevel.display("2026-07-01"))
+        for (p in listOf("2026-06-01", "2026-07-01")) {
+            val d = PatchLevel.display(p)
+            assertFalse("不该再带 emoji：$d", d.contains("⚠") || d.contains("❗"))
+        }
     }
 
     @Test
