@@ -135,8 +135,6 @@
     <string name="advanced">Advanced</string>
     <string name="advanced_mode">Advanced mode</string>
     <string name="advanced_mode_description">Manually choose a device-compatible payload during installation</string>
-    <string name="log_detailed">Detailed log</string>
-    <string name="log_detailed_description">Show each translated exploit step. Turn off for a brief view that only reports milestones.</string>
     <string name="exploit_summary_rooting">Elevating to root</string>
     <string name="exploit_summary_prepare">Preparing local payload</string>
     <string name="exploit_summary_fixed_so">Support profile: fixed SO</string>

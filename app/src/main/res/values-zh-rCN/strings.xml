@@ -21,8 +21,6 @@
     <string name="github_card_description">查看源代码和使用方法。</string>
     <string name="action_continue">忽略并继续</string><string name="action_next">下一步</string>
     <string name="advanced">高级</string><string name="advanced_mode">高级模式</string><string name="advanced_mode_description">安装时手动选择设备兼容 payload</string>
-    <string name="log_detailed">日志详细显示</string>
-    <string name="log_detailed_description">逐条显示翻译后的提权步骤。关闭后只显示关键节点，界面更简洁。</string>
     <string name="exploit_summary_rooting">正在提升权限至 root</string>
     <string name="exploit_summary_prepare">正在准备本地载荷</string>
     <string name="exploit_summary_fixed_so">支持配置：固定 SO</string>

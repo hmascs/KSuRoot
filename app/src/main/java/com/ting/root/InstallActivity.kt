@@ -205,13 +205,9 @@ private fun InstallScreen(
             InstallerStatusCard(
                 phase = installState.phase,
                 message = installState.message,
-                summary = installState.summary,
-                milestone = installState.milestone,
-                pastCfi = installState.pastCfi,
                 modifier = Modifier.weight(STATUS_WEIGHT),
             )
             InstallerLog(
-                displayLog = installState.displayLog,
                 rawLog = installState.log,
                 modifier = Modifier.weight(LOG_WEIGHT),
                 scrollState = logScrollState,
@@ -263,18 +259,14 @@ private fun InstallScreen(
 /**
  * 状态卡。
  *
- * 三行结构，从上到下依次回答「在干什么 / 干到哪 / 还差多少」：
+ * 结构，从上到下依次回答「在干什么 / 干到哪 / 还差多少」：
  * 1. `message` —— 阶段级文案（来自 ViewModel）
- * 2. `summary` —— 语义引擎翻译出的当前动作（如「KASLR 通过」）
- * 3. 进度条   —— 家族 A 走真实里程碑，其余走阶段近似
+ * 3. 进度条   —— 阶段近似（里程碑随翻译引擎一并移除）
  */
 @Composable
 private fun InstallerStatusCard(
     phase: InstallPhase,
     message: String,
-    summary: String,
-    milestone: Int,
-    pastCfi: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val scheme = MiuixTheme.colorScheme
@@ -298,7 +290,7 @@ private fun InstallerStatusCard(
             verticalArrangement = Arrangement.spacedBy(SPACING_ITEM),
         ) {
             Row(
-                // 图标跟着文字顶端对齐，summary 换行时不会把图标推到中线以下
+                // 图标跟着文字顶端对齐，详情换行时不会把图标推到中线以下
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(SPACING_ITEM),
             ) {
@@ -354,15 +346,8 @@ private fun InstallerStatusCard(
                         text = message,
                         style = MaterialTheme.typography.titleMedium,
                     )
-                    // 详细模式下显示语义摘要；精简模式由 ViewModel 置空，
-                    // 这时退回阶段详情，状态区不会出现一行空白。
-                    val detail = if (summary.isNotBlank() && !pastCfi) {
-                        summary
-                    } else if (pastCfi) {
-                        stringResource(R.string.exploit_summary_rooting)
-                    } else {
-                        installPhaseDetail(phase)
-                    }
+                    // [2026-09-24] 翻译引擎已移除 → 状态区统一显示阶段详情。
+                    val detail = installPhaseDetail(phase)
                     Text(
                         text = detail,
                         style = MaterialTheme.typography.bodyMedium,
@@ -373,7 +358,7 @@ private fun InstallerStatusCard(
             // 里程碑跳变时进度条用弹簧平滑追赶，而不是瞬移 ——
             // CFI 通过那一刻 14/16 → 16/16 的"冲线感"就来自这里。
             val animatedProgress by animateFloatAsState(
-                targetValue = installProgress(phase, milestone),
+                targetValue = installProgress(phase),
                 animationSpec = AppMotion.snappy(),
                 label = "install-progress",
             )
@@ -391,7 +376,6 @@ private fun InstallerStatusCard(
 
 @Composable
 private fun InstallerLog(
-    displayLog: String,
     rawLog: String,
     modifier: Modifier,
     scrollState: androidx.compose.foundation.ScrollState,
@@ -399,16 +383,11 @@ private fun InstallerLog(
     val context = androidx.compose.ui.platform.LocalContext.current
     // 注意：stringResource 是 @Composable，不能在 onClick 里调 —— 先取到外面。
     val preparingText = stringResource(R.string.install_preparing)
-    val visibleText = displayLog.ifBlank { preparingText }
     // 导出给的是**原始**日志（英文 + 地址 + errno），不是界面上的译文 ——
     // 贴给别人排查问题时，原始输出才有用；译文只负责让当前用户看懂。
     val exportText = rawLog.ifBlank { preparingText }
     var pendingLog by remember { mutableStateOf("") }
-    // [2026-09-24 需求] 默认显示**原始日志**，把日志显示调回来。
-    // 语义译文（ExploitLogDigest）是给"只想看进度"的人用的，一键可切；
-    // 但排查问题时必须能立刻看到原文，不该再多点两次。
-    var showRaw by remember { mutableStateOf(true) }
-    val shown = if (showRaw) exportText else visibleText
+    // [2026-09-24] 翻译引擎整体移除 → 日志框只显示**原始日志**，不再有切换。
     val saveLogLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
@@ -433,13 +412,6 @@ private fun InstallerLog(
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f),
                 )
-                // 原文 / 译文 切换
-                IconButton(onClick = { showRaw = !showRaw }) {
-                    Icon(
-                        imageVector = if (showRaw) Icons.Rounded.Article else Icons.Rounded.Translate,
-                        contentDescription = if (showRaw) "切换到译文" else "切换到原文",
-                    )
-                }
                 // 一键复制：出问题时直接把**原始**日志贴到群里/issue 里
                 IconButton(onClick = { context.copyLogToClipboard(exportText) }) {
                     Icon(
@@ -465,7 +437,7 @@ private fun InstallerLog(
                 }
             }
             Text(
-                text = shown,
+                text = exportText,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
@@ -493,16 +465,11 @@ private fun installPhaseDetail(phase: InstallPhase): String = stringResource(
     },
 )
 
-private fun installProgress(phase: InstallPhase, milestone: Int = 0): Float {
-    // 家族 A 有公认的 16 级阶梯，能算出**真实**进度：载荷跑到第几步就是几分之几。
-    // 这比按阶段猜（Exploiting 一律 0.6）准确得多 —— 卡在 CFI 重试时
-    // 进度条会停在 14/16，用户一眼能看出"没过 CFI"而不是"莫名其妙不动"。
-    // 其余家族没有统一阶梯，退回阶段近似值。
-    if (phase == InstallPhase.Exploiting && milestone in 1..ExploitLogDigest.VIVO_MILESTONE_COUNT) {
-        // 阶段内占比：0.3（进入 Exploiting）→ 0.85（交给 KSU 加载）
-        val inner = milestone.toFloat() / ExploitLogDigest.VIVO_MILESTONE_COUNT
-        return 0.3f + inner * 0.55f
-    }
+private fun installProgress(phase: InstallPhase): Float {
+    // [2026-09-24] 里程碑（家族 A 的 16 级阶梯）随翻译引擎一起移除，
+    // 进度条退回**阶段近似值**：Exploiting 一律 0.6。
+    // 代价是"卡在 CFI 重试"不再能从进度条看出来，但日志框是原文，
+    // 重试次数在状态卡的 message 里仍有。
     return when (phase) {
         InstallPhase.Checking -> 0.1f
         InstallPhase.Ready -> 0f

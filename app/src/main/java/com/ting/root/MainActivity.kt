@@ -194,7 +194,6 @@ class MainActivity : ComponentActivity() {
     private var shizukuMode by mutableStateOf(false)
     /** 「5.x 内核支持（beta）」—— 默认关，关着时识别到 5.x 不采用五系方案。 */
     private var allowTestKernel by mutableStateOf(false)
-    private var logDetailed by mutableStateOf(true)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -204,7 +203,6 @@ class MainActivity : ComponentActivity() {
         advancedMode = AppPreferences.advancedMode(this)
         shizukuMode = AppPreferences.shizukuMode(this)
         allowTestKernel = AppPreferences.allowTestKernel(this)
-        logDetailed = AppPreferences.logDetailed(this)
         setContent {
             RootMyGalaxyTheme(accentColor = accentColor, themeMode = themeMode) {
                 RootApp(
@@ -215,7 +213,6 @@ class MainActivity : ComponentActivity() {
                     advancedMode = advancedMode,
                     shizukuMode = shizukuMode,
                     allowTestKernel = allowTestKernel,
-                    logDetailed = logDetailed,
                     onAccentColorChanged = { color ->
                         AppPreferences.setAccentColor(this, color)
                         accentColor = color
@@ -235,10 +232,6 @@ class MainActivity : ComponentActivity() {
                     onAllowTestKernelChanged = { enabled ->
                         AppPreferences.setAllowTestKernel(this, enabled)
                         allowTestKernel = enabled
-                    },
-                    onLogDetailedChanged = { enabled ->
-                        AppPreferences.setLogDetailed(this, enabled)
-                        logDetailed = enabled
                     },
                     openInstaller = { bundledLibrary ->
                         val installer = Intent(this, InstallActivity::class.java)
@@ -357,13 +350,11 @@ private fun RootApp(
     shizukuMode: Boolean,
     /** 「5.x 内核支持（beta）」开关当前值；同时决定载荷构建能不能走五系方案。 */
     allowTestKernel: Boolean,
-    logDetailed: Boolean,
     onAccentColorChanged: (AccentColor) -> Unit,
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onAdvancedModeChanged: (Boolean) -> Unit,
     onShizukuModeChanged: (Boolean) -> Unit,
     onAllowTestKernelChanged: (Boolean) -> Unit,
-    onLogDetailedChanged: (Boolean) -> Unit,
     openInstaller: (String?) -> Unit,
 ) {
     val context = LocalContext.current
@@ -747,14 +738,12 @@ private fun RootApp(
                             themeMode = themeMode,
                             advancedMode = advancedMode,
                             shizukuMode = shizukuMode,
-                            logDetailed = logDetailed,
                             onAccentColorChanged = onAccentColorChanged,
                             onThemeModeChanged = onThemeModeChanged,
                             onAdvancedModeChanged = onAdvancedModeChanged,
                             onShizukuModeChanged = onShizukuModeChanged,
                             allowTestKernel = allowTestKernel,
                             onAllowTestKernelChanged = onAllowTestKernelChanged,
-                            onLogDetailedChanged = onLogDetailedChanged,
                         )
                     }
                 }
@@ -2217,7 +2206,6 @@ private fun SettingsPage(
     themeMode: AppThemeMode,
     advancedMode: Boolean,
     shizukuMode: Boolean,
-    logDetailed: Boolean,
     onAccentColorChanged: (AccentColor) -> Unit,
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onAdvancedModeChanged: (Boolean) -> Unit,
@@ -2225,7 +2213,6 @@ private fun SettingsPage(
     /** 「5.x 内核支持（beta）」开关的当前值。 */
     allowTestKernel: Boolean,
     onAllowTestKernelChanged: (Boolean) -> Unit,
-    onLogDetailedChanged: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -2437,13 +2424,6 @@ private fun SettingsPage(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                     ) {
-                SwitchPreference(
-                    checked = logDetailed,
-                    onCheckedChange = onLogDetailedChanged,
-                    title = stringResource(R.string.log_detailed),
-                    summary = stringResource(R.string.log_detailed_description),
-                    startAction = { PreferenceIcon(Icons.AutoMirrored.Rounded.Article) },
-                )
                 SwitchPreference(
                     checked = advancedMode,
                     onCheckedChange = onAdvancedModeChanged,

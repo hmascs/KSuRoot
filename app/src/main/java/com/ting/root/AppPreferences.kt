@@ -56,7 +56,6 @@ object AppPreferences {
     private const val THEME_MODE = "theme_mode"
     private const val ADVANCED_MODE = "advanced_mode"
     private const val SHIZUKU_MODE = "shizuku_mode"
-    private const val LOG_DETAILED = "log_detailed"
     private const val PAYLOAD_SOURCE = "payload_source"
     private const val CONSUMED_INSTALL_REQUEST = "consumed_install_request"
     private const val KERNEL_SERIES_OVERRIDE = "kernel_series_override"
@@ -124,22 +123,6 @@ object AppPreferences {
             .apply()
     }
 
-    /**
-     * 提权页日志是否显示详细模式。
-     *
-     * `true`（默认）→ 逐条显示翻译后的语义日志；
-     * `false`        → 精简模式，只显示里程碑，CFI 之后固定显示「正在提升权限至 root」。
-     */
-    fun logDetailed(context: Context): Boolean =
-        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-            .getBoolean(LOG_DETAILED, true)
-
-    fun setLogDetailed(context: Context, enabled: Boolean) {
-        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean(LOG_DETAILED, enabled)
-            .apply()
-    }
 
     fun payloadSource(context: Context): PayloadSource = PayloadSource.fromStoredValue(
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)

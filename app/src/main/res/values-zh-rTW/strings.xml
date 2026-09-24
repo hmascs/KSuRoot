@@ -139,8 +139,6 @@
     <string name="advanced">進階</string>
     <string name="advanced_mode">進階模式</string>
     <string name="advanced_mode_description">安裝時手動選擇裝置相容的 payload</string>
-    <string name="log_detailed">日誌詳細顯示</string>
-    <string name="log_detailed_description">逐條顯示翻譯後的提權步驟。關閉後只顯示關鍵節點，介面更簡潔。</string>
     <string name="exploit_summary_rooting">正在提升權限至 root</string>
     <string name="exploit_summary_prepare">正在準備本地載荷</string>
     <string name="exploit_summary_fixed_so">支援設定：固定 SO</string>

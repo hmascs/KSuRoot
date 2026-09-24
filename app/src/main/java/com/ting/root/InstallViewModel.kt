@@ -48,12 +48,6 @@ data class InstallUiState(
     val message: String = "",
     val probeOutput: String = "",
     val log: String = "",
-    /** 顶部状态行下的一行语义摘要，例如「KASLR 通过」。 */
-    val summary: String = "",
-    /** 已走过的里程碑序号（1..16），0 表示尚未开始。 */
-    val milestone: Int = 0,
-    /** 是否已越过 CFI 分界线；越过后面板固定显示「正在提升权限至 root」。 */
-    val pastCfi: Boolean = false,
     /**
      * 提权页日志框**实际渲染**的内容。
      *
@@ -130,7 +124,6 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
      * 分开维护的原因：用户既需要「界面看得懂」，也需要「导出的是原始日志」，
      * 用同一份缓冲就无法同时满足——之前界面上刷的是英文原始串，正是这个原因。
      */
-    private val displayLogLines = ArrayList<String>(256)
 
     /**
      * `stripAnsi(rawLog)` 的缓存。载荷日志是累积增长的，每次追加几十字节就
@@ -242,10 +235,8 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             // 一次安装的日志缓冲从零开始：它同时也是历史记录的镜像，
             // 直接 append 成行列表，避免"字符串拼接 + 每次刷新都整段扫一遍"。
             installLogLines.clear()
-            displayLogLines.clear()
             // 上一次安装的摘要 / 里程碑 / CFI 标记必须一起清掉，否则新的一轮会从
             // 上一轮的进度条中段起步。
-            activeFamily = ExploitLogDigest.PayloadFamily.Unknown
             digestedLength = 0
             // `strippedCache` 系列也必须清 —— 它们上一轮缓存的是**上一次**的载荷输出。
             // 若不清：新一轮首跳时 `rawLog.length` 恰好等于上一轮的 `strippedSourceLength`
@@ -255,7 +246,6 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             strippedCache = ""
             logPrefixCache = ""
             p0ScanLength = 0
-            logDetailed = AppPreferences.logDetailed(app)
             mutableState.value = InstallUiState(
                 phase = InstallPhase.Checking,
                 probeOutput = mutableState.value.probeOutput,
@@ -344,7 +334,6 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
 
                 // 载荷已定，先把家族确定下来 —— 三套利用链的日志格式完全不同，
                 // 必须用对应的映射表，否则出现的是另一种机型的误译。
-                activeFamily = ExploitLogDigest.familyOf(payloads.exploit.name)
 
                 setPhase(InstallPhase.Exploiting, app.getString(R.string.status_exploit_running))
                 executeExploit(payloads.exploit)
@@ -515,10 +504,6 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
      *    有新增内容时重建，且**不在 CFI 之后的高频段重建**。
      */
     private fun publishExploitLog(prefix: String, rawLog: String) {
-        // 前缀必须先落盘，**不能放在下面的早退之后** ——
-        // 载荷启动瞬间 `cleaned` 还是空串，第一跳就会命中 `cleaned.length == digestedLength`
-        // 直接 return，那时若还没记下 prefix，收尾的 forceLogRebuild 就拼不出自检/Shizuku
-        // 那一段，导出给开发者的日志会凭空少掉前半截。
         logPrefixCache = prefix
         val cleaned = if (rawLog.length == strippedSourceLength) {
             strippedCache
@@ -528,33 +513,19 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 strippedSourceLength = rawLog.length
             }
         }
-        // 内容确实没长（`cleaned` 变短只可能是 stripAnsi 的结果被换掉了，长度相等即无新增）。
         if (cleaned.length <= digestedLength) return
-        // 增量读取给的是累积串，整段重跑 digest 会是 O(n²)；
-        // 只消化"上次已处理长度之后"的新增部分。
-        val tail = cleaned.substring(digestedLength)
         digestedLength = cleaned.length
-        val digest = if (tail.isBlank()) DIGEST_NOOP else digestTail(tail)
-
-        val displayChanged = digest.summary.isNotBlank() || digest.milestone > 0 || digest.pastCfi
-        val previous = mutableState.value
-        // CFI 之后：译文已经锁死在「正在提升权限至 root」，原始日志不再参与渲染。
-        // 这时重建 `log` 纯粹是给历史记录留痕，没必要每个轮询周期做一次 ——
-        // 攒到收尾时用 `forceLogRebuild` 一次性写全。
-        val rebuildLog = displayChanged || !previous.pastCfi
+        // [2026-09-24] 翻译引擎已整体移除：界面日志 = 原始日志（去掉 ANSI）。
+        // 因此只要有新增内容就必须重建 —— 这正是"用户看到新东西"的定义。
         val combined = when {
-            !rebuildLog -> previous.log
             prefix.isBlank() -> cleaned
             cleaned.isBlank() -> prefix
             else -> "$prefix\n$cleaned"
         }
-        mutableState.value = previous.copy(
+        mutableState.value = mutableState.value.copy(
             log = combined,
             logPrefix = prefix,
-            displayLog = displayLogLines.joinToString("\n"),
-            summary = digest.summary.ifBlank { previous.summary },
-            milestone = maxOf(digest.milestone, previous.milestone),
-            pastCfi = digest.pastCfi || previous.pastCfi,
+            displayLog = combined,
         )
         markHistoryDirty()
     }
@@ -608,25 +579,6 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     /** [strippedCache] / [logPrefixCache] 的写入串行化（轮询协程与收尾协程都会碰）。 */
     private val logRebuildLock = Any()
 
-    /**
-     * 逐行消化一段**新增**日志。
-     *
-     * 里程碑只增不减（`maxOf`），否则中途某些行没有映射时进度条会回跳；
-     * `pastCfi` 只置位不复位，越过 CFI 后界面就锁定在定妆文案上。
-     */
-    private fun digestTail(tail: String): DigestState {
-        var summary = ""
-        var milestone = 0
-        var pastCfi = false
-        for (line in tail.lineSequence()) {
-            if (line.isBlank()) continue
-            val state = digestState(line)
-            if (state.summary.isNotBlank()) summary = state.summary
-            if (state.milestone > milestone) milestone = state.milestone
-            if (state.pastCfi) pastCfi = true
-        }
-        return DigestState(summary, milestone, pastCfi)
-    }
 
     private fun installKernelSu(payloads: VerifiedPayloads) {
         val kernelSu = requireNotNull(payloads.kernelSu)
@@ -791,9 +743,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
      * 缓冲区有上限：提权日志刷得快，历史记录不需要无限增长 —— 超出后丢最旧的，
      * 保留尾部 [MAX_LOG_LINES] 行，同时也能让字符串保持小而快。
      *
-     * 同时维护 [InstallUiState.displayLog]（界面看的那份）：
-     * - 详细模式：逐行翻译，翻不出来的原样保留（不猜、不丢信息）；
-     * - 简略模式：只留里程碑行与出错行，其余整段吞掉。
+     * [InstallUiState.displayLog] 与 `log` 现在是**同一份**（翻译引擎已移除）。
      */
     private fun appendLog(line: String) {
         val cleanLine = stripAnsi(line).trim()
@@ -802,16 +752,11 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         if (installLogLines.size > MAX_LOG_LINES) {
             installLogLines.subList(0, installLogLines.size - LOG_TRIM_TARGET).clear()
         }
-        if (displayLogLines.size > MAX_LOG_LINES) {
-            displayLogLines.subList(0, displayLogLines.size - LOG_TRIM_TARGET).clear()
-        }
-        val digest = digestState(cleanLine)
+        // [2026-09-24] 翻译引擎已整体移除：界面日志与原始日志同一份。
+        val joined = installLogLines.joinToString("\n")
         mutableState.value = mutableState.value.copy(
-            log = installLogLines.joinToString("\n"),
-            displayLog = displayLogLines.joinToString("\n"),
-            summary = digest.summary.ifBlank { mutableState.value.summary },
-            milestone = maxOf(digest.milestone, mutableState.value.milestone),
-            pastCfi = digest.pastCfi || mutableState.value.pastCfi,
+            log = joined,
+            displayLog = joined,
         )
         markHistoryDirty()
     }
@@ -827,87 +772,6 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
      * 内部约定，外部调用方未必知道该守什么规矩。这里只暴露"写一行日志"这一件事。
      */
     fun logExternalEvent(line: String) = appendLog(line)
-    /**
-     * 精简模式开关的快照。
-     *
-     * 在安装开始时读一次，而不是每次 digest 都读 SharedPreferences ——
-     * 提权日志每秒几十行，每行都去读一次磁盘配置是纯粹的浪费。
-     * 用户在一次提权过程中改设置的概率也基本为零。
-     */
-    private var logDetailed = true
-
-    /** [digestState] 的结果，避免中途判空。 */
-    private data class DigestState(val summary: String, val milestone: Int, val pastCfi: Boolean)
-
-    /** 空转结果，`summary` 为空表示不更新摘要。 */
-    private val DIGEST_NOOP = DigestState("", 0, false)
-
-    /**
-     * 把一行日志喂给语义引擎，算出摘要 / 里程碑 / CFI 分界。
-     *
-     * 只有家族 A（vivo `preload.so`）有公认的 16 级阶梯，其余家族只取摘要文案，
-     * 里程碑保持 0、进度条走阶段制。
-     *
-     * 结果同时用于两处：状态卡的 [InstallUiState.summary]，以及日志框的
-     * [displayLogLines]（第 [milestone] 行）。两者同源，界面上下不会说两句话。
-     */
-    private fun digestState(line: String): DigestState {
-        val family = activeFamily
-        // 家族还没定（检查阶段）或无法识别时，**原文透传**而不是丢弃。
-        // App 自己产生的状态文案（「已选定 XXX」「Shizuku 就绪」）走的就是这条路——
-        // 早期实现直接 return 空转，导致日志框里只剩载荷输出，看不到"选了哪份载荷"。
-        if (family == ExploitLogDigest.PayloadFamily.Unknown) {
-            appendDisplayLog(line)
-            return DIGEST_NOOP
-        }
-        val digested = ExploitLogDigest.digest(family, line)
-        if (digested == null) {
-            // 认得出家族但这一行没有映射条目：原文透传，绝不猜、也绝不吞。
-            // 载荷的崩溃栈、dlopen 报错都落在这里，丢了就没法排查。
-            appendDisplayLog(line)
-            return DIGEST_NOOP
-        }
-        val milestone = if (family == ExploitLogDigest.PayloadFamily.VivoPreload) {
-            digested.milestone ?: 0
-        } else {
-            0
-        }
-        // 定妆段：越过 CFI 之后的细节一行都不再外泄，统一收敛成同一句。
-        if (digested.pastCfi) {
-            // CFI 之后载荷会刷出成百上千行，全部折叠成同一句就无法区分"还在跑"
-            // 和"已经卡死"。这里改成**只在文案变化时新增一行**，既保持画面简洁，
-            // 又让用户能从行数看出进度仍在推进。
-            appendDisplayLog(ROOTING_SUMMARY)
-            return DigestState(ROOTING_SUMMARY, milestone, true)
-        }
-        if (!logDetailed) {
-            // 精简模式只留"里程碑"和"出事了"，中间过程全部吞掉。
-            val keep = (milestone > 0 && digested.milestone != null) ||
-                digested.level >= ExploitLogDigest.Level.Warning
-            if (!keep) return DIGEST_NOOP
-        }
-        appendDisplayLog(digested.text)
-        return DigestState(digested.text, milestone, false)
-    }
-
-    /**
-     * 往日志框的语义化缓冲区追加一行，**连续重复的文案自动合并**。
-     *
-     * 载荷在重试循环里会把同一条日志刷几十遍（例如内存探测失败重试），
-     * 逐行照抄会让真正有用的信息被淹掉。这里做相邻去重，重试次数靠状态卡
-     * 的「重试 n/24」表达，日志框保持可读。
-     */
-    private fun appendDisplayLog(text: String) {
-        if (text.isBlank()) return
-        if (displayLogLines.lastOrNull() == text) return
-        displayLogLines.add(text)
-    }
-
-    /**
-     * 当前载荷家族，由 [executeExploit] 在启动载荷前设定。
-     * 默认 [ExploitLogDigest.PayloadFamily.Unknown]，此时不做任何翻译。
-     */
-    private var activeFamily: ExploitLogDigest.PayloadFamily = ExploitLogDigest.PayloadFamily.Unknown
 
     private fun startHistory() {
         val entry = historyStore.create()
@@ -1179,10 +1043,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
          *
          * 这一段载荷日志刷新极快，逐行呈现只会让人眼花；用户关心的是
          * 「已经过了最难的一关，正在收尾」，所以统一收敛成一句话。
-         * 用常量而不是 `R.string` —— `digestState` 不在 Composable 里，
+         * 用常量而不是 `R.string` —— 这段逻辑不在 Composable 里，
          * 拿不到 `stringResource`，而这段文案又不随语言变化（root 是通用词）。
          */
-        private const val ROOTING_SUMMARY = "正在提升权限至 root"
         private const val LOG_TRIM_TARGET = 900
 
         /** 历史记录的合并写节流。 */
