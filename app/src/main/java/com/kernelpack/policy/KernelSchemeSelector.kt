@@ -44,6 +44,13 @@ object KernelSchemeSelector {
             val major: Int,
             val useTestScheme: Boolean,
             val notes: List<String>,
+            /**
+             * 完整内核串（如 `6.6.118-android15-8-g2e6b9c3812c5-ab15114928-4k`）。
+             *
+             * 带上它是为了让下游能**按小版本**路由到具体档位 ——
+             * 上游那 50 档是按小版本登记的，只给 [series]（`6.6`）的话它们永远选不中。
+             */
+            val release: String = "",
         ) : Decision() {
             override val ok = true
             /** 该用哪条线：主线还是测试。 */
@@ -119,23 +126,30 @@ object KernelSchemeSelector {
                 major = major,
                 useTestScheme = false,
                 notes = listOf("主线内核 $series，采用主线方案。"),
+                release = kernelRelease,
             )
         }
 
-        // ── ② 6.x 但不在主线（如 6.1）：明确拒绝，**不**落进 5.x 的 beta 开关 ──
-        // 为什么单独拦：6.1 是 6.x，容易被误以为"和 6.6 差不多"；但它的
-        // rt_mutex_waiter 是 flat 形态（88 字节，task@0x30），与 6.6/6.12 的 nested
-        // （112 字节，task@0x50）**不是一套**。放它过去 = 拿 6.6 的偏移打 6.1 的内核内存。
+        // ── ② 6.x 但既不在主线、也没有专属基线：明确拒绝，**不**落进 5.x 的 beta 开关 ──
+        //
+        // [2026-09-25 更正] 这里原本连 **6.1 一起拦掉**，理由是"6.1 是 flat 形态，
+        // 与 6.6/6.12 的 nested 不是一套"。理由本身成立，但**结论已经过时**：
+        // 6.1 现在有专属基线 `libbaseline_6_1.so`（6_1 族结构体偏移），
+        // 已被 `MAINLINE_SERIES` 收录，走不到这个分支。
+        //
+        // 保留这个分支是为了拦住**真正没有基线**的 6.x（如 6.2 / 6.5 / 6.7…）——
+        // 对它们仍然必须拒绝：拿 6.6 的偏移打上去会命中错误的结构体字段。
         if (major == 6) {
             return Decision.Blocked(
                 title = "不支持的 6.x 内核版本 $series",
                 detail = listOf(
                     "实测内核：$kernelRelease",
                     "本工程只支持 6.x 里的 ${MAINLINE_SERIES.joinToString(" / ")}（主线）。",
-                    "$series 不在支持范围内：它的 rt_mutex_waiter 布局族与主线不同，",
-                    "没有为该系列登记过偏移产物 —— 硬按主线偏移构建会打到错误的结构体字段上。",
+                    "$series 既不在主线（${MAINLINE_SERIES.joinToString(" / ")}），也没有专属基线。",
+                    "每个内核系列的结构体布局各自独立（6.1 是 flat、6.6/6.12 是 nested），",
+                    "拿别的系列的偏移打上去会命中错误的结构体字段。",
                 ),
-                remedy = "该 6.x 次版本暂不支持；请在「设置 → 内核系列」保持「自动」，并勿强行构建。",
+                remedy = "该 6.x 次版本没有专属基线，暂不支持；请在「设置 → 内核系列」保持「自动」。",
             )
         }
 
@@ -175,6 +189,7 @@ object KernelSchemeSelector {
                 "[测试内核] $series 属测试线，你已手动开启「5.x 内核支持（beta）」。",
                 "本工程未在 5.x 上实测过偏移，请只用于 beta 验证。",
             ),
+            release = kernelRelease,
         )
     }
 

@@ -3,6 +3,7 @@ package com.kernelpack.policy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import com.kernelpack.profile.BaselineRegistry
 import org.junit.Test
 
 /**
@@ -99,8 +100,14 @@ class KernelSchemeSelectorTest {
 
     @Test
     fun `主线与测试系列清单与注册表口径一致`() {
-        assertEquals(listOf("6.6", "6.12"), KernelSchemeSelector.MAINLINE_SERIES)
-        assertEquals(listOf("5.10", "5.15"), KernelSchemeSelector.TEST_SERIES)
+        // [2026-09-25] 主线加入 6.1 —— 它现在有专属基线（libbaseline_6_1.so，6_1 族）。
+        assertEquals(listOf("6.1", "6.6", "6.12"), KernelSchemeSelector.MAINLINE_SERIES)
+        // 注意 JUnit 三参重载是 (message, expected, actual) —— 顺序写反会报类型不匹配
+        assertEquals(
+            "选择器与注册表的主线清单必须同源，不能各说一套",
+            BaselineRegistry.MAINLINE_SERIES,
+            KernelSchemeSelector.MAINLINE_SERIES,
+        )
     }
     // ================= 「强制指定」必须在**构建前**就拦下 =================
 
@@ -194,19 +201,18 @@ class KernelSchemeSelectorTest {
     // ================= 6.1 已从主线移除（2026-09-12 口径）=================
 
     @Test
-    fun `六点一属于不支持的六系次版本`() {
-        // 6.1 是 6.x，容易被误以为"和 6.6 差不多"；但它 rt_mutex_waiter 是 flat 形态
-        // （88 字节，task@0x30），与 6.6/6.12 的 nested（112 字节，task@0x50）不是一套。
-        val d = KernelSchemeSelector.select(k61)
-        assertTrue("6.1 必须被拒绝，实际 $d", d is KernelSchemeSelector.Decision.Blocked)
-        val b = d as KernelSchemeSelector.Decision.Blocked
-        assertTrue("标题要点明 6.x 次版本不支持：${b.title}", b.title.contains("6.1"))
+    fun `六点一现在有专属基线，属于主线`() {
+        // [2026-09-25 更正] 旧断言写的是"6.1 必须被拒绝"，理由是
+        // "6.1 是 flat 形态、与 6.6/6.12 的 nested 不是一套"。
+        // **理由本身成立，但结论已过时** —— 我们已为 6.1 编出专属基线
+        // （结构体偏移取 6_1 族），所以不再存在"拿 6.6 偏移硬打 6.1"的危险。
+        val d = KernelSchemeSelector.select("6.1.145-android14-11-maybe-dirty")
+        assertTrue("6.1 应被主线放行", d is KernelSchemeSelector.Decision.Selected)
+        assertEquals("6.1", (d as KernelSchemeSelector.Decision.Selected).series)
+        // 真正没有基线的 6.x 仍须拒绝 —— 这条不能松
+        val bad = KernelSchemeSelector.select("6.5.1-android14-11-gabcdef123456")
+        assertTrue("6.5 没有基线，必须拒绝", bad is KernelSchemeSelector.Decision.Blocked)
     }
 
-    @Test
-    fun `开五系 beta 开关也不能放行六点一`() {
-        // beta 开关只针对 5.x；6.1 不是通过它进入的
-        val d = KernelSchemeSelector.select(k61, allowTestKernel = true)
-        assertTrue("6.1 不应被 beta 开关放行，实际 $d", d is KernelSchemeSelector.Decision.Blocked)
-    }
+
 }

@@ -133,6 +133,35 @@ object BundledPayloadCatalog {
          * 机型名（[displayName]）不翻译 —— 那是型号，属于专有名词。
          */
         @StringRes val noteRes: Int = 0,
+        /**
+         * **内核版本未知** —— 只允许用户手动选择，**绝不参与自动匹配**。
+         *
+         * 这一条是硬安全约束，不是提示。存在的原因：并入的那批载荷多数被 strip 过，
+         * 二进制里读不到内核串，机型只能从来源仓库路径得知。若把这种条目的
+         * [kernelVersion] 留成 `null` 了事，会被 [resolve] 的第 1/2 步当成
+         * 「**不限内核**」而自动选中 —— 而本文件开头就写了：载荷靠**编译期常量**
+         * 寻址内核符号，拿错一份就是常量对不上、提权直接失败。
+         *
+         * 所以「机型已知但内核未知」必须与「机型无关所以不限内核」区分开：
+         * 前者是本字段为真，后者是 [model] 为 `null`。
+         */
+        val kernelUnknown: Boolean = false,
+        /**
+         * 厂商构建号（如 `CP2A.260705.006` / `S942U1UES4AZG3`），可为空。
+         *
+         * 仅用于展示：同一机型有多份、且内核版本都读不出来时，
+         * 用户只能靠构建号区分是哪一次 OTA 的载荷。
+         */
+        val buildId: String = "",
+        /**
+         * 变体的**可读区分名**（如 `64 位 PoC`），空串表示没有。
+         *
+         * 由来：有些载荷的区分点既不是内核版本也不是构建号，而是文件名本身
+         * （`libpoc64.so` / `libpoc32.so` 就是同一次 PoC 的 64 位与 32 位两份）。
+         * 不单独给一个字段的话，界面只能退回去显示内部库名
+         * （`other_androidcve202643499_any_cc14`），那对用户毫无意义。
+         */
+        val shortName: String = "",
     )
 
     /**
@@ -315,7 +344,12 @@ object BundledPayloadCatalog {
         BundledPayload(
             library = "libksu_vivo_z10tp_6657_a.so",
             vendor = "vivo",
-            displayName = "iQOO Z10 Turbo+",
+            // [2026-09-24 合并] 这一份二进制同时是 vivo X200 / X200 Pro mini / X200 Pro /
+            // X200S / iQOO Neo10 Pro / iQOO Z10 Turbo+ 六款机型共用的那份
+            // （原 `libksu_vivo_sixmodels_a.so` 与它 sha256 完全相同，已作为重复文件删除）。
+            // 显示名**列出全部机型**，不再只写第一款；匹配关键词仍只保留有实证的那一款 ——
+            // 其余五款没有"该内核版本下确实可用"的证据，不冒充已验证。
+            displayName = "iQOO Z10 Turbo+ / vivo X200 / X200 Pro mini / X200 Pro / X200S / iQOO Neo10 Pro",
             model = listOf("iqoo z10 turbo+"),
             kernelVersion = "6.6.57",
             kernelCommits = setOf("e9c3d7352454"),
@@ -556,19 +590,6 @@ object BundledPayloadCatalog {
             sourcePath = "vivo/iqoo12 A15/iQOO12.so",
             command = "LD_PRELOAD=<payload> sh",
         ),
-        // ——— vivo X200 六机型合集 ——————————————————————————
-        BundledPayload(
-            library = "libksu_vivo_sixmodels_a.so",
-            vendor = "vivo",
-            displayName = "vivo X200 / X200 Pro mini / X200 Pro / X200S / iQOO Neo10 Pro / iQOO Z10 Turbo+",
-            model = null,
-            kernelVersion = null,
-            sha256 = "c0474820eb0bef03fb2a086b1b4dec99c8015f0f03a85eaf399ef52decb563e5",
-            size = 156824,
-            sourcePath = "vivo/vivoX200、…六款机型/vivoX200等六款机型.so",
-            command = "LD_PRELOAD=<payload> /system/bin/id",
-            noteRes = R.string.payload_note_sixmodels_fallback,
-        ),
         // ——— Xiaomi：通用 SoC 家族包（不按机型自动匹配） ————
         BundledPayload(
             library = "libksu_mi_sm8550_a.so",
@@ -641,7 +662,24 @@ object BundledPayloadCatalog {
             command = "/data/local/tmp/mi_mt6895_43499 --target <内核版本的后三位>",
             noteRes = R.string.payload_note_exec_mt6895,
         ),
-    )
+        // ——— 三星 W26（用户提供，2026-09-24）——————————————————
+        // 载荷由用户提供（`libw26payload.so`）。二进制里**没有内核串也没有构建指纹**，
+        // 所以 `kernelVersion` 留空并置 `kernelUnknown = true` —— 只允许手动选用，
+        // 绝不参与自动匹配（拿错一份就是编译期常量对不上、提权直接失败）。
+        // 已核对确为 CVE-2026-43499 载荷：pselect ×28、KernelSnitch ×21、futex-PI 原语 ×2。
+        BundledPayload(
+            library = "libksu_samsung_w26_any_2671.so",
+            vendor = "samsung",
+            displayName = "三星 W26（Galaxy Z Fold7 中国版）",
+            model = listOf("w26", "sm-f9660"),
+            kernelVersion = null,
+            sha256 = "2671d27d26aaaf462c7d36b76d8acb6e70983e04e9d8fdd4a49df85d0ef0ec0c",
+            size = 93576,
+            sourcePath = "用户提供：libw26payload.so",
+            command = "LD_PRELOAD=<payload> /system/bin/id",
+            kernelUnknown = true,
+        ),
+    ) + BundledPayloadImported.ALL
 
     private val byLibrary: Map<String, BundledPayload> = ALL.associateBy { it.library }
 
@@ -697,21 +735,28 @@ object BundledPayloadCatalog {
         }
 
         // 第 1 步：机型 + 内核版本 + commit 全中。
+        // [2026-09] 新增 `!kernelUnknown` 闸门：内核版本读不出来的条目**不得**
+        // 落进自动匹配，否则它会被当成"不限内核"而命中任意内核。
         candidates.firstOrNull {
-            it.kernelVersion == null ||
-                (it.kernelVersion == kernel && it.kernelCommits.isNotEmpty() && commit in it.kernelCommits)
+            !it.kernelUnknown && (
+                it.kernelVersion == null ||
+                    (it.kernelVersion == kernel && it.kernelCommits.isNotEmpty() && commit in it.kernelCommits)
+                )
         }?.let { entry ->
             fileFor(context, entry)?.let { return Resolution(entry, MatchTier.Exact, it) }
         }
 
         // 第 2 步：机型 + 内核版本中，commit 不在登记表里（厂商小版本 OTA）。
-        candidates.firstOrNull { it.kernelVersion == null || it.kernelVersion == kernel }
+        candidates.firstOrNull { !it.kernelUnknown && (it.kernelVersion == null || it.kernelVersion == kernel) }
             ?.let { entry ->
                 fileFor(context, entry)?.let { return Resolution(entry, MatchTier.SameKernel, it) }
             }
 
         // 第 3 步：机型中但内核版本不在登记表 —— 同机型的其它 OTA，可能可用。
-        candidates.firstOrNull()
+        // 这一步本来就只作建议，所以内核未知的条目可以在这里出现；
+        // 但它们**排在有内核信息的条目后面**，避免"未知"顶掉"已知"。
+        candidates.sortedBy { it.kernelUnknown }
+            .firstOrNull()
             ?.let { entry ->
                 fileFor(context, entry)?.let { return Resolution(entry, MatchTier.SimilarDevice, it) }
             }

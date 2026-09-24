@@ -28,6 +28,7 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -69,6 +70,7 @@ import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.BuildCircle
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Error
+import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.History
@@ -97,6 +99,7 @@ import java.io.File
 import com.ting.root.security.SecurityWarningBanner
 import com.ting.root.security.rememberSecurityIntegrityState
 import com.kernelpack.policy.KernelTier
+import com.kernelpack.profile.BaselineRegistry
 import com.kernelpack.policy.SeriesOverride
 import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
@@ -104,6 +107,13 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.draw.clip
+import com.kernelpack.offsets.GhostLockOffsetsIo
+import com.kernelpack.offsets.OffsetsDocument
+import com.ting.root.ui.theme.Radii
+import top.yukonga.miuix.kmp.basic.InputField
+import android.text.format.Formatter
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -134,6 +144,7 @@ import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
@@ -364,6 +375,10 @@ private fun RootApp(
     val buildState by builderViewModel.state.collectAsStateWithLifecycle()
     var selectedPage by remember { mutableStateOf(AppPage.Overview) }
     var showInstallConfirmation by remember { mutableStateOf(false) }
+    // 「自动匹配结果」弹窗。**只有 7 月及以后补丁（LIKELY_FIXED）才弹**：
+    // 那种机器大概率已经修了，值得让用户先看清"到底匹配到哪台设备、哪个内核"再决定。
+    // 6 月及以下只把同样一段信息**内联**显示在安装确认弹窗里，不额外打断一次。
+    var showMatchDialog by remember { mutableStateOf(false) }
     // 内核低于 6.6：按安装前先提示"免 ADB 这条路走不通"。
     var kernelTooOld by remember { mutableStateOf(false) }
     // 安全补丁提示：非 null 时弹窗。**只提示，不阻断**（见 PatchLevel 的说明）。
@@ -395,22 +410,31 @@ private fun RootApp(
     // 点「开始构建」先弹方案选择（从下往上），选完才真正开跑。
     var showSchemeSheet by remember { mutableStateOf(false) }
 
-    if (patchRisk != PatchRisk.NONE) {
-        PatchWarningDialog(
-            risk = patchRisk,
-            patch = device.securityPatch,
-            onDismiss = { patchRisk = PatchRisk.NONE },
-            onContinue = {
-                patchRisk = PatchRisk.NONE
-                // 用户已读并确认 → 继续走原来的安装前置判断（补丁本身不构成拦截）
-                if (!device.supportsGhostLockWithoutAdb && !shizukuMode) {
-                    kernelTooOld = true
-                } else {
-                    showInstallConfirmation = true
-                }
-            },
-        )
+    // ── 自动匹配结果 ──────────────────────────────────────────────
+    // 手动选过载荷时以手动那份为准（用户的选择优先于自动匹配）；
+    // 否则跑一遍 `resolve`，拿到的就是"真的要用的那一份"。
+    // `runCatching`：设备完全不在清单里时 resolve 会抛，这里要的是"显示没匹配上"，
+    // 不是把整个主页崩掉。
+    val matchContext = LocalContext.current
+    val resolvedMatch = remember(device, manualPayload) {
+        if (manualPayload != null) null
+        else runCatching { BundledPayloadCatalog.resolve(matchContext, device) }.getOrNull()
     }
+    val matchEntry = remember(manualPayload, resolvedMatch) {
+        manualPayload?.let { BundledPayloadCatalog.byLibrary(it) } ?: resolvedMatch?.entry
+    }
+    // 本机**所有**可用的内置载荷（不只自动选中的那一份）。
+    // 筛选规则与 [BundledPayloadCatalog.resolve] 的候选池**完全一致** ——
+    // 用同一套 `matchesModel`，否则会出现"自动匹配选中了 A，但可选项里没有 A"这种自相矛盾。
+    // 只有当可选多于一份时才在界面上给出选择入口（见下面的 `size > 1` 判断）。
+    val matchVariants = remember(device) {
+        val model = device.identityText.ifBlank { device.model }.lowercase()
+        BundledPayloadCatalog.ALL.filter { entry ->
+            val groups = (entry.model ?: emptyList()) + listOf(entry.displayName)
+            groups.any { BundledPayloadCatalog.matchesModel(listOf(it), model) }
+        }
+    }
+
 
     // ── 移交 root ──────────────────────────────────────────────────────
     // 三态：null = 还没检测完 / false = 没有 root / true = 有 root。
@@ -764,6 +788,33 @@ private fun RootApp(
             // LocalDialogStates / LocalRootDialogStates CompositionLocal
             // 和 MiuixPopupHost 来渲染弹层。放在 Scaffold 外面时这些
             // CompositionLocal 是空列表，对话框状态不被消费 → 不渲染。
+    // ⚠️ 必须**常驻组合**，不能包在 `if (patchRisk != NONE)` 里。
+    // miuix 的弹层靠 `show` 驱动弹簧出入场（本文件 [OverlayBottomSheet] 的注释里
+    // 早就写了"常驻组合（不能包在 if 里）"）。包在 if 里的话，它被挂载时 `show`
+    // 已经是 true，可见态来不及建立 —— 弹窗根本不出现，而流程还卡在等它确认，
+    // 表现出来就是"点安装没反应"。`risk` 为 NONE 时只是 show=false，不渲染。
+    PatchWarningDialog(
+        show = patchRisk != PatchRisk.NONE,
+        risk = patchRisk,
+            patch = device.securityPatch,
+            onDismiss = { patchRisk = PatchRisk.NONE },
+            onContinue = {
+                // 用户已读并确认 → 补丁本身不构成拦截，继续走安装前置判断。
+                // 但**呈现方式按档位分开**：
+                //   7 月及以后（红档）→ 先弹「自动匹配结果」，让用户核对内核再决定；
+                //   6 月及以下（黄档）→ 直接进安装确认，匹配结果内联显示在那里。
+                val confirmedRisk = patchRisk
+                patchRisk = PatchRisk.NONE
+                if (confirmedRisk == PatchRisk.LIKELY_FIXED) {
+                    showMatchDialog = true
+                } else if (!device.supportsGhostLockWithoutAdb && !shizukuMode) {
+                    kernelTooOld = true
+                } else {
+                    showInstallConfirmation = true
+                }
+            },
+    )
+
             PayloadSchemeSheet(
                 show = showSchemeSheet,
                 onDismiss = { showSchemeSheet = false },
@@ -780,6 +831,25 @@ private fun RootApp(
                 onContinue = {
                     kernelTooOld = false
                     showInstallConfirmation = true
+                },
+            )
+
+            // 7 月及以后补丁专属：确认补丁告警后先看匹配结果。
+            // 它「继续」之后仍然要过一遍内核过旧的判断 —— 弹窗只是插在前面，不跳过任何闸门。
+            PayloadMatchDialog(
+                show = showMatchDialog,
+                device = device,
+                entry = matchEntry,
+                tier = resolvedMatch?.tier,
+                manual = manualPayload != null,
+                onDismiss = { showMatchDialog = false },
+                onContinue = {
+                    showMatchDialog = false
+                    if (!device.supportsGhostLockWithoutAdb && !shizukuMode) {
+                        kernelTooOld = true
+                    } else {
+                        showInstallConfirmation = true
+                    }
                 },
             )
 
@@ -802,7 +872,93 @@ private fun RootApp(
                     manualPayload?.let { library ->
                         Text(
                             stringResource(R.string.install_confirm_manual_payload, library),
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.primary,
+                        )
+                    }
+                    HorizontalDivider()
+                    // 匹配不到时的**阻断说明**：明确告诉用户下一步该干什么，
+                    // 而不是只丢一句"没有匹配条目"让他自己猜。
+                    if (matchEntry == null && payloadSource == PayloadSource.Bundled) {
+                        Text(
+                            stringResource(R.string.match_blocked_title),
+                            style = MiuixTheme.textStyles.title4,
+                            color = MiuixTheme.colorScheme.error,
+                        )
+                        Text(
+                            stringResource(R.string.match_blocked_hint),
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
+                    // 自动匹配结果内联显示。
+                    // 6 月及以下补丁走的就是这一条路径 —— 按你的要求"显示"而不是再弹一层；
+                    // 7 月及以后虽然已经弹过同一个块，这里仍保留，因为它同时是**最终确认**，
+                    // 用户在这一屏上还能再核对一次内核。
+                    PayloadMatchBlock(
+                        device = device,
+                        entry = matchEntry,
+                        tier = resolvedMatch?.tier,
+                        manual = manualPayload != null,
+                    )
+                    // 只有**真的有多个可选**时才给这个入口。
+                    // 单一载荷的机型上摆一个只有一个选项的单选列表，纯属噪音。
+                    if (matchVariants.size > 1) {
+                        HorizontalDivider()
+                        Text(
+                            stringResource(R.string.install_pick_payload),
+                            style = MiuixTheme.textStyles.title4,
+                        )
+                        matchVariants.forEach { candidate ->
+                            val checked = candidate.library == manualPayload
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(Radii.small))
+                                    .background(
+                                        if (checked) MiuixTheme.colorScheme.primaryContainer
+                                        else Color.Transparent,
+                                    )
+                                    .selectable(
+                                        selected = checked,
+                                        role = Role.RadioButton,
+                                        // 再点一次已选中的可以取消，回到"自动匹配"
+                                        onClick = {
+                                            manualPayload = if (checked) null else candidate.library
+                                        },
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                RadioButton(selected = checked, onClick = null)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        candidate.displayName,
+                                        style = MiuixTheme.textStyles.body2,
+                                        color = if (checked) MiuixTheme.colorScheme.onPrimaryContainer
+                                        else MiuixTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = candidate.kernelVersion?.let {
+                                            stringResource(R.string.match_payload_kernel, it)
+                                        } ?: candidate.buildId.ifBlank {
+                                            stringResource(R.string.payload_variant_kernel_unknown)
+                                        },
+                                        style = MiuixTheme.textStyles.footnote2,
+                                        color = if (checked) MiuixTheme.colorScheme.onPrimaryContainer
+                                        else MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    )
+                                }
+                            }
+                        }
+                        // 这条提示**只对多载荷机型出现**：单一载荷的机器上，
+                        // "换几份试试"是句做不到的话。
+                        Text(
+                            stringResource(R.string.install_multi_hint),
+                            style = MiuixTheme.textStyles.footnote1,
                             color = MiuixTheme.colorScheme.primary,
                         )
                     }
@@ -818,11 +974,16 @@ private fun RootApp(
                         onClick = { showInstallConfirmation = false },
                         modifier = Modifier.weight(1f),
                     )
+                    // 自动匹配不到、且用户也没手动选过任何一份时，**不让继续**。
+                    // 按你的要求："无法自动匹配到动态库时要求你自己选取动态库，或者自行导入动态库"。
+                    // 这里只禁用按钮、不自动关闭弹窗 —— 让用户就在这一屏上把载荷选掉，
+                    // 而不是把他弹回去再让他自己找入口。
                     Button(
                         onClick = {
                             showInstallConfirmation = false
                             openInstaller(manualPayload.takeIf { payloadSource == PayloadSource.Bundled })
                         },
+                        enabled = matchEntry != null || payloadSource != PayloadSource.Bundled,
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColorsPrimary(),
                     ) {
@@ -949,7 +1110,7 @@ private fun OverviewPage(
                     )
                     Text(
                         text = stringResource(R.string.app_name),
-                        style = MaterialTheme.typography.headlineLarge,
+                        style = MiuixTheme.textStyles.headline1,
                     )
                     Spacer(modifier = Modifier.weight(1f))
                     Text(
@@ -958,8 +1119,8 @@ private fun OverviewPage(
                             BuildConfig.VERSION_NAME,
                             BuildConfig.VERSION_CODE,
                         ),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.45f),
                     )
                 }
             }
@@ -977,12 +1138,12 @@ private fun OverviewPage(
                         Icons.Rounded.Warning,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.error,
+                        tint = MiuixTheme.colorScheme.error,
                     )
                     Text(
                         text = "安全补丁已合并幽灵锁修复，大概率无法正常使用",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.error,
                     )
                 }
             }
@@ -1056,8 +1217,8 @@ private fun RootHandoffCard(
                     contentDescription = null,
                     modifier = Modifier.size(24.dp),
                     tint = when (rootAvailable) {
-                        true -> MaterialTheme.colorScheme.primary
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        true -> MiuixTheme.colorScheme.primary
+                        else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
                     },
                 )
                 Column(
@@ -1066,7 +1227,7 @@ private fun RootHandoffCard(
                 ) {
                     Text(
                         stringResource(R.string.root_handoff_card_title),
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MiuixTheme.textStyles.title2,
                     )
                     Text(
                         text = stringResource(
@@ -1076,8 +1237,8 @@ private fun RootHandoffCard(
                                 true -> R.string.root_handoff_card_status_ready
                             },
                         ),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.86f),
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.86f),
                     )
                 }
             }
@@ -1087,18 +1248,18 @@ private fun RootHandoffCard(
                 TextButton(onClick = { showProbeDetail = !showProbeDetail }) {
                     Text(
                         if (showProbeDetail) "收起检测详情" else "为什么没检测到？",
-                        style = MaterialTheme.typography.labelLarge,
+                        style = MiuixTheme.textStyles.button,
                     )
                 }
                 if (showProbeDetail) {
                     Text(
                         text = rootProbeDetail,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
                 }
                 TextButton(onClick = onRetryRootProbe) {
-                    Text("重新检测", style = MaterialTheme.typography.labelLarge)
+                    Text("重新检测", style = MiuixTheme.textStyles.button)
                 }
             }
             FilledTonalButton(
@@ -1171,17 +1332,17 @@ private fun CustomPayloadCard(
                     Icons.Rounded.BuildCircle,
                     contentDescription = null,
                     modifier = Modifier.size(28.dp),
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = MiuixTheme.colorScheme.primary,
                 )
                 Column {
                     Text(
                         stringResource(R.string.custom_payload_title),
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MiuixTheme.textStyles.title2,
                     )
                     Text(
                         stringResource(R.string.custom_payload_description),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
                 }
             }
@@ -1227,9 +1388,9 @@ private fun CustomPayloadCard(
             if (customPayload != null) {
                 Text(
                     stringResource(R.string.custom_sha_format, customPayload.sha256.take(16) + "…"),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MiuixTheme.textStyles.footnote1,
                     fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
         }
@@ -1271,11 +1432,11 @@ private fun PayloadSourceChoice(
     ) {
         RadioButton(selected = selected, onClick = null, enabled = enabled)
         Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(title, style = MiuixTheme.textStyles.title4)
             Text(
                 detail,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
         }
         if (onViewDetail != null) {
@@ -1283,30 +1444,88 @@ private fun PayloadSourceChoice(
                 Icon(
                     Icons.Rounded.ChevronRight,
                     contentDescription = stringResource(R.string.payload_detail_action),
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = MiuixTheme.colorScheme.primary,
                 )
             }
         }
     }
 }
 
+/**
+ * 分区分组的厂商顺序。
+ *
+ * **「其他」不在这个列表里** —— 它由 `sections` 的计算逻辑兜底排在最后。
+ * 认不出机型的载荷混在正常机型中间，会让人以为那也是某台具体的机器。
+ */
+private val BRAND_ORDER = listOf(
+    "google", "samsung", "xiaomi", "vivo", "oppo", "realme",
+    "oneplus", "honor", "asus", "sharp", "meizu",
+)
+
+/** 厂商 key → 显示名。走字符串资源，非中文语言下不会漏出中文。 */
+@Composable
+private fun vendorLabel(vendor: String): String = stringResource(
+    when (vendor) {
+        "google" -> R.string.brand_google
+        "samsung" -> R.string.brand_samsung
+        "xiaomi" -> R.string.brand_xiaomi
+        "vivo" -> R.string.brand_vivo
+        "oppo" -> R.string.brand_oppo
+        "realme" -> R.string.brand_realme
+        "oneplus" -> R.string.brand_oneplus
+        "honor" -> R.string.brand_honor
+        "asus" -> R.string.brand_asus
+        "sharp" -> R.string.brand_sharp
+        "meizu" -> R.string.brand_meizu
+        else -> R.string.brand_other
+    },
+)
+
+/**
+ * 品牌分区标题。
+ *
+ * 用 `SectionLabel` 的同一套排版（小号 + 主色），和设置页的分组标题保持一致观感；
+ * 右侧跟一个款数，方便用户一眼看出这个品牌下有多少可选。
+ */
+@Composable
+private fun BrandSectionHeader(vendor: String, count: Int) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 6.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = vendorLabel(vendor),
+            style = MiuixTheme.textStyles.title4,
+            color = MiuixTheme.colorScheme.primary,
+            maxLines = 1,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = stringResource(R.string.brand_section_count, count),
+            style = MiuixTheme.textStyles.footnote2,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            maxLines = 1,
+        )
+    }
+}
+
 private data class SupportedDeviceEntry(
     val name: String,
+    /** 厂商（`google` / `samsung` / `vivo` / …）。用于搜索，也用于列表次级信息。 */
+    val vendor: String,
     /** 备注的资源 id；`0` 表示这条机型没有备注，界面不渲染第二行。 */
     @StringRes val noteRes: Int,
     val badge: String,
     /**
      * 这条机型对应的可选用载荷（`library` 文件名 → 展示名）。
      *
-     * 之所以要带上：清单里 4 份通用包（小米 8g2 / 天玑 / 六款共用 / PIE 可执行）
-     * **无法按设备自动匹配**，只能由用户手动指定。早期版本只在这几份的备注里写
-     * 「需在载荷列表手动选用」，但界面上并没有这个列表 —— 用户被指向一个不存在的地方。
-     * 现在把选择入口直接挂在机型条目上。
-     */
-    /**
-     * 这条机型对应的可选用载荷（`library` 文件名 → 展示名）。
-     * 之所以要带上：清单里 4 份通用包…**无法按设备自动匹配**，只能由用户手动指定。
-     * 早期版本只在这几份的备注里写「需在载荷列表手动选用」，但界面上并没有这个列表。
+     * 之所以要带上：清单里的通用包（小米 8g2 / 天玑 / 六款共用 / PIE 可执行，以及并入的
+     * 那批读不出内核版本的厂商载荷）**无法按设备自动匹配**，只能由用户手动指定。
+     * 早期版本只在备注里写「需在载荷列表手动选用」，但界面上并没有这个列表 ——
+     * 用户被指向一个不存在的地方。现在把选择入口直接挂在机型条目上。
      */
     val variants: List<PayloadVariant>,
     /**
@@ -1322,7 +1541,59 @@ private data class SupportedDeviceEntry(
 private data class PayloadVariant(
     val library: String,
     val label: String,
-)
+    /** 内核版本；`null` 表示读不出来。 */
+    val kernelVersion: String? = null,
+    /** 读不出内核版本 —— 界面上要明确标出来，不能让它看起来像"已确认可用"。 */
+    val kernelUnknown: Boolean = false,
+    /** 厂商构建号，同一机型多份时用来区分是哪一次 OTA。 */
+    val buildId: String = "",
+    /** 可读区分名（如 `64 位 PoC`）；空串表示没有。 */
+    val shortName: String = "",
+    val sha256: String = "",
+    val size: Long = 0L,
+) {
+    /**
+     * 供搜索用的全部文本（小写）。
+     *
+     * 把 `library` 与 `sha256` 也算进来：用户可能拿着别处看到的文件名或摘要来找，
+     * 而界面上只显示机型名 —— 不带上这两项就搜不到。
+     */
+    val searchText: String =
+        "$library ${buildId} ${kernelVersion ?: ""} $sha256".lowercase()
+
+    /**
+     * 列表行里显示的**区分信息**。
+     *
+     * 刻意不带机型名：卡片标题上已经写着，再重复一遍是纯噪音 ——
+     * 原来是 `"$name · $disc"`，渲染出来就是"机型名"下面又一行"机型名 · 构建号"。
+     */
+    val shortLabel: String
+        get() = when {
+            shortName.isNotBlank() -> shortName
+            kernelVersion != null -> kernelVersion
+            buildId.isNotBlank() -> buildId
+            // 兜底不再回退到内部库名（`other_androidcve202643499_any_cc14` 这种东西
+            // 对用户毫无意义）。露摘要前缀：它至少能和下载来源对上。
+            else -> "sha256 " + sha256.take(12)
+        }
+}
+
+/**
+ * 载荷变体的排序：**内核版本已知的排前面**，未知的沉底。
+ *
+ * 用户扫这个列表时，应该先看到"确定对得上"的，最后才是"要自己判断"的 ——
+ * 反过来会把不确定的顶到眼前，等于鼓励误选。
+ */
+private val payloadVariantOrder = Comparator<PayloadVariant> { left, right ->
+    when {
+        left.kernelUnknown != right.kernelUnknown -> if (left.kernelUnknown) 1 else -1
+        left.kernelVersion != null && right.kernelVersion != null ->
+            kernelVersionComparator.compare(left.kernelVersion, right.kernelVersion)
+        left.kernelVersion != null -> -1
+        right.kernelVersion != null -> 1
+        else -> left.buildId.compareTo(right.buildId)
+    }
+}
 
 /**
  * 内核版本号的自然序比较器（`6.6.89` < `6.6.120`，而不是字符串序的 `6.6.120 < 6.6.89`）。
@@ -1381,29 +1652,60 @@ private val installerSteps = listOf(
 private fun bundledSupportedDevices(defaultLibrary: String): List<SupportedDeviceEntry> =
     BundledPayloadCatalog.ALL
         .groupBy { it.displayName }
-        .map { (name, entries) ->
+        .map { (name, rawEntries) ->
+            // ── 去重 ────────────────────────────────────────────────────────
+            // 并入的那 83 份来自几十个仓库，同一份载荷常被多个仓库同时携带
+            // （例如 `cve-2026-43499-app.so` 有好几家在转发），sha256 完全相同。
+            // 不去重的话，同一台机器下面会并列出现好几条**一模一样**的选项 ——
+            // 用户看不出差别，只会以为"随便点一个都行"，而实际上它们本来就等价。
+            // 按 sha256 保留第一条（= `ALL` 里优先级最高的那条）。
+            val entries = rawEntries.distinctBy { it.sha256 }
             val kernels = entries
                 .mapNotNull { it.kernelVersion }
                 .distinct()
                 .sortedWith(kernelVersionComparator)
             SupportedDeviceEntry(
                 name = name,
+                vendor = entries.first().vendor,
                 // 备注走字符串资源，非中文语言下不会漏出中文；
                 // 同一机型有多份载荷时取**第一条非空备注**，避免被第一条空备注吞掉。
                 noteRes = entries.firstOrNull { it.noteRes != 0 }?.noteRes ?: 0,
                 badge = kernels.joinToString(" · "),
                 // 同一机型下的每一份载荷都做成可点选项：备注只说明"为什么有多份"，
-                // 真正让用户选中的是这个列表。内核版本已知的拼上版本号，避免只看到
-                // 四个同名条目分不清谁是谁。
-                variants = entries.map { entry ->
-                    PayloadVariant(
-                        library = entry.library,
-                        label = entry.kernelVersion?.let { "$name · $it" } ?: name,
-                    )
-                },
+                // 真正让用户选中的是这个列表。标签带上区分信息，避免只看到
+                // 几个同名条目分不清谁是谁。
+                variants = entries
+                    .map { entry ->
+                        PayloadVariant(
+                            library = entry.library,
+                            label = "$name · " + when {
+                                entry.kernelVersion != null -> entry.kernelVersion
+                                // 内核读不出来时，退而给出构建号 —— 同一机型的多次 OTA
+                                // 只能靠它区分；连构建号都没有就退回文件名。
+                                entry.buildId.isNotBlank() -> entry.buildId
+                                else -> entry.library.removePrefix("libksu_").removeSuffix(".so")
+                            },
+                            kernelVersion = entry.kernelVersion,
+                            kernelUnknown = entry.kernelUnknown,
+                            buildId = entry.buildId,
+                            shortName = entry.shortName,
+                            sha256 = entry.sha256,
+                            size = entry.size,
+                        )
+                    }
+                    // 排序必须放在 map **之后**：比较器比的是 PayloadVariant，
+                    // 套在 BundledPayload 上连编译都过不去（语义也不对）。
+                    .sortedWith(payloadVariantOrder),
                 defaultLibrary = defaultLibrary,
             )
         }
+        // 排序：**本机命中的那台排最前**（用户九成是来找自己的机器），
+        // 其余按厂商 + 机型名 —— 固定顺序才能让搜索框的过滤结果稳定可预期。
+        .sortedWith(
+            compareByDescending<SupportedDeviceEntry> { entry ->
+                entry.variants.any { it.library == entry.defaultLibrary }
+            }.thenBy { it.vendor }.thenBy { it.name },
+        )
 
 @Composable
 private fun PayloadSourceDetailSheet(
@@ -1420,6 +1722,46 @@ private fun PayloadSourceDetailSheet(
 ) {
     // 只有条目数 > 1 时才值得手动选，否则这是个徒增误操作入口的装饰。
     val selectable = entries.any { it.variants.size > 1 }
+
+    var query by rememberSaveable { mutableStateOf("") }
+    var noteExpanded by rememberSaveable { mutableStateOf(false) }
+
+    // 读不出内核版本的载荷有几份 —— 用来决定折叠说明里要不要提一句。
+    val unknownKernelCount = remember(entries) {
+        entries.sumOf { entry -> entry.variants.count { it.kernelUnknown } }
+    }
+
+    // 搜索命中范围：机型名 / 厂商 / 内核徽章 / 变体的库名·构建号·摘要。
+    // 放进 `remember`：并入那批之后清单有 120+ 个机型，每次重组都全量过滤会掉帧。
+    val filtered = remember(entries, query) {
+        val needle = query.trim().lowercase()
+        if (needle.isEmpty()) {
+            entries
+        } else {
+            entries.filter { entry ->
+                entry.name.lowercase().contains(needle) ||
+                    entry.vendor.contains(needle) ||
+                    entry.badge.lowercase().contains(needle) ||
+                    entry.variants.any { it.searchText.contains(needle) }
+            }
+        }
+    }
+
+    // 按厂商分区。顺序固定，且**「其他」永远排最后** ——
+    // 认不出机型的载荷不能夹在正常机型中间，否则用户会以为那也是某台机器。
+    val sections = remember(filtered) {
+        val byVendor = filtered.groupBy { it.vendor }
+        buildList {
+            BRAND_ORDER.forEach { v ->
+                val list = byVendor[v] ?: return@forEach
+                add(v to list)
+            }
+            // 没列进 BRAND_ORDER 的（含 other）统一收尾，一条都不丢
+            byVendor.filterKeys { it !in BRAND_ORDER }.toSortedMap()
+                .forEach { (v, list) -> add(v to list) }
+        }
+    }
+
     // miuix 弹层：show 驱动弹簧出入场，常驻组合（不能包在 if 里）。
     OverlayBottomSheet(
         show = show,
@@ -1432,39 +1774,139 @@ private fun PayloadSourceDetailSheet(
                 .fillMaxWidth()
                 .padding(horizontal = Spacing.page)
                 .padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(note, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (selectable) {
+            // ── 搜索（miuix 原生胶囊输入框）────────────────────────────────
+            InputField(
+                query = query,
+                onQueryChange = { query = it },
+                onSearch = { },
+                // `expanded` 必须传 false —— miuix 的占位符条件是
+                // `if (!(query.isNotEmpty() || expanded)) label else ""`，
+                // 传 true 会把 label 永远压掉，搜索框就成了一个没有提示的空胶囊。
+                // 独立使用 InputField 时 expanded 只影响这一处，右侧清除按钮
+                // 看的是 `query.isNotEmpty()`，不受影响。
+                expanded = false,
+                onExpandedChange = { },
+                modifier = Modifier.fillMaxWidth(),
+                label = stringResource(R.string.payload_search_hint),
+            )
+
+            // ── 说明：默认折叠，只留一个可点的图标 ────────────────────────
+            // 这段说明有 200+ 字符，常驻会把首屏的机型列表整个挤下去；
+            // 但它同时是"为什么同一机型有好几份"的唯一解释，删不得 —— 折进图标里。
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(Radii.small))
+                    .clickable { noteExpanded = !noteExpanded }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Info,
+                    contentDescription = stringResource(R.string.payload_note_toggle),
+                    tint = MiuixTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(
+                    text = stringResource(R.string.payload_search_summary, filtered.size, entries.size),
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            // 「当前选中」单独占一行。
+            // 之前它和计数挤在同一个 Row 里，而它自己**没有任何宽度约束** ——
+            // 一个长机型名会把带 `weight(1f)` 的计数压到只剩一个字符宽，
+            // 于是"79 / 79 个机型"被逐字竖排，还把首条卡片压出重叠。
+            if (selectedLabel != null) {
+                Text(
+                    text = stringResource(R.string.payload_detail_selected, selectedLabel),
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            AnimatedVisibility(visible = noteExpanded) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        stringResource(R.string.payload_detail_pick_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MiuixTheme.colorScheme.primary,
+                        text = note,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
-                }
-                if (selectedLabel != null) {
-                    Text(
-                        stringResource(R.string.payload_detail_selected, selectedLabel),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    if (selectable) {
+                        Text(
+                            text = stringResource(R.string.payload_detail_pick_hint),
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.primary,
+                        )
+                    }
+                    // 「内核未知」的解释**只在这里出现一次**。
+                    // 早先它是挂在每条登记项上的备注，而这批载荷 77/83 条都读不出内核版本，
+                    // 于是同一段两行说明在几乎每张卡片上重复了一遍，把机型列表冲得看不清。
+                    if (unknownKernelCount > 0) {
+                        Text(
+                            text = stringResource(R.string.payload_note_kernel_unknown, unknownKernelCount),
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
                 }
             }
+
+            if (filtered.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.payload_search_empty),
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(vertical = 24.dp),
+                )
+            }
+
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 480.dp),
+                    .heightIn(max = 460.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(entries, key = { it.name }) { entry ->
+                sections.forEach { (vendor, sectionEntries) ->
+                    item(key = "section-$vendor") {
+                        BrandSectionHeader(vendor, sectionEntries.size)
+                    }
+                    items(sectionEntries, key = { it.name }) { entry ->
+                    // 只有一个变体时，**整张卡片就是那个选项**。
+                    // 原来无论几个变体都渲染一行单选，于是绝大多数卡片变成
+                    // "机型名" + "机型号 · 构建号" 两行几乎一样的字 —— 纯噪音。
+                    val single = entry.variants.size <= 1
+                    val only = entry.variants.firstOrNull()
+                    val singleChecked = single && only != null && selectedLibrary == only.library
+
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.medium,
-                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        shape = RoundedCornerShape(Radii.medium),
+                        // 选中的单卡整张换底色 —— 列表里一眼能看出这台就是当前生效的。
+                        color = if (singleChecked) MiuixTheme.colorScheme.primaryContainer
+                        else MiuixTheme.colorScheme.surfaceContainer,
                     ) {
                         Column(
-                            modifier = Modifier.padding(horizontal = Spacing.card, vertical = Spacing.item),
+                            modifier = Modifier
+                                .then(
+                                    if (single && only != null) {
+                                        Modifier.selectable(
+                                            selected = singleChecked,
+                                            role = Role.RadioButton,
+                                            onClick = { onSelect(if (singleChecked) null else only.library) },
+                                        )
+                                    } else {
+                                        Modifier
+                                    },
+                                )
+                                .padding(horizontal = Spacing.card, vertical = Spacing.item),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Row(
@@ -1475,65 +1917,104 @@ private fun PayloadSourceDetailSheet(
                                     modifier = Modifier.weight(1f),
                                     verticalArrangement = Arrangement.spacedBy(2.dp),
                                 ) {
-                                    Text(entry.name, style = MaterialTheme.typography.titleSmall)
+                                    // 限两行 + 省略号。`Ki-Andriod-APP` 这种长连字符串
+                                    // 在窄列里会被拆成三行（"Ki-And / riod-A / PP"），很难看；
+                                    // 徽章又占掉一截宽度，不加约束就会被挤成那样。
+                                    Text(
+                                        entry.name,
+                                        style = MiuixTheme.textStyles.title4,
+                                        color = if (singleChecked) MiuixTheme.colorScheme.onPrimaryContainer
+                                        else MiuixTheme.colorScheme.onSurface,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
                                     if (entry.noteRes != 0) {
                                         Text(
                                             stringResource(entry.noteRes),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            style = MiuixTheme.textStyles.footnote1,
+                                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                        )
+                                    }
+                                    // 单变体：把区分信息（内核 / 构建号 / 大小）并进卡片副标题，
+                                    // 不再为它单起一行。
+                                    if (single && only != null) {
+                                        Text(
+                                            text = payloadVariantDetail(only),
+                                            style = MiuixTheme.textStyles.footnote2,
+                                            color = if (singleChecked) MiuixTheme.colorScheme.onPrimaryContainer
+                                            else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                         )
                                     }
                                 }
-                                val badge = when {
-                                    kernelBadges -> stringResource(R.string.payload_detail_kernel_format, entry.badge)
-                                    chipBadge != null -> chipBadge
-                                    else -> null
+                                // 徽章：**没有内核版本就不渲染**。
+                                // 原来无条件渲染 `内核 %s`，而这批载荷 77/83 条读不出内核版本
+                                // → 界面上出现一整列只有「内核」二字的空徽章，纯粹是误导。
+                                val badge: String? = when {
+                                    !kernelBadges -> chipBadge
+                                    entry.badge.isBlank() -> null
+                                    else -> stringResource(R.string.payload_detail_kernel_format, entry.badge)
                                 }
                                 if (badge != null) {
                                     Surface(
                                         shape = RoundedCornerShape(50),
-                                        color = MaterialTheme.colorScheme.primaryContainer,
-                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        color = MiuixTheme.colorScheme.primaryContainer,
                                     ) {
                                         Text(
                                             badge,
                                             modifier = Modifier.padding(horizontal = Spacing.inline, vertical = 5.dp),
-                                            style = MaterialTheme.typography.labelSmall,
+                                            style = MiuixTheme.textStyles.footnote2,
+                                            color = MiuixTheme.colorScheme.onPrimaryContainer,
                                             maxLines = 1,
                                         )
                                     }
                                 }
+                                if (single) {
+                                    RadioButton(selected = singleChecked, onClick = null)
+                                }
                             }
-                            // 可选用载荷。**自动匹配先跑一遍**并把它标成「推荐」：
-                            // 用户手动选择的前提是知道"不选的话会用哪一份"，
-                            // 否则这个列表只是让人对着文件名猜。
-                            if (selectable && entry.variants.isNotEmpty()) {
-                                // 自动匹配会选中的那一份，标成「推荐」——用户手动选择的前提
-                                // 是知道"不选的话会用哪一份"，否则这个列表只是让人对着文件名猜。
+                            // 多变体：每一份载荷一行单选。**只显示区分信息**
+                            // （内核版本 / 构建号 / 文件名）—— 机型名在卡片标题上已经有了。
+                            if (!single && entry.variants.isNotEmpty()) {
                                 entry.variants.forEach { variant ->
                                     val checked = selectedLibrary == variant.library
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
+                                            .clip(RoundedCornerShape(Radii.small))
+                                            .background(
+                                                if (checked) MiuixTheme.colorScheme.primaryContainer
+                                                else Color.Transparent,
+                                            )
                                             .selectable(
                                                 selected = checked,
                                                 role = Role.RadioButton,
                                                 onClick = { onSelect(if (checked) null else variant.library) },
-                                            ),
+                                            )
+                                            .padding(horizontal = 8.dp, vertical = 6.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     ) {
                                         RadioButton(selected = checked, onClick = null)
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(
-                                                variant.label,
-                                                style = MaterialTheme.typography.bodyMedium,
+                                                variant.shortLabel,
+                                                style = MiuixTheme.textStyles.body2,
+                                                color = if (checked) MiuixTheme.colorScheme.onPrimaryContainer
+                                                else MiuixTheme.colorScheme.onSurface,
+                                            )
+                                            // 构建号已经在上一行时不再重复
+                                            Text(
+                                                text = payloadVariantDetail(variant, includeBuild = false),
+                                                style = MiuixTheme.textStyles.footnote2,
+                                                color = if (checked) MiuixTheme.colorScheme.onPrimaryContainer
+                                                else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                             )
                                             if (variant.library == entry.defaultLibrary) {
                                                 Text(
                                                     stringResource(R.string.payload_detail_recommended),
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.primary,
+                                                    style = MiuixTheme.textStyles.footnote2,
+                                                    color = if (checked) MiuixTheme.colorScheme.onPrimaryContainer
+                                                    else MiuixTheme.colorScheme.primary,
                                                 )
                                             }
                                         }
@@ -1543,9 +2024,29 @@ private fun PayloadSourceDetailSheet(
                         }
                     }
                 }
+                }
             }
         }
     }
+}
+
+/**
+ * 变体行的次级说明：`内核未知 · 构建 CP2A.260705.006 · 82 KB`。
+ *
+ * 「内核未知」这三个字必须显眼 —— 那批并入的载荷多数是 strip 过的，读不出内核版本，
+ * 选错就是常量对不上、提权直接失败。宁可让用户多犹豫一下。
+ */
+@Composable
+private fun payloadVariantDetail(variant: PayloadVariant, includeBuild: Boolean = true): String {
+    val context = LocalContext.current
+    return buildList {
+        if (variant.kernelUnknown) add(stringResource(R.string.payload_variant_kernel_unknown))
+        // 多变体列表里构建号已经在上一行做了标题，这里不再重复
+        if (includeBuild && variant.buildId.isNotBlank()) {
+            add(stringResource(R.string.payload_variant_build, variant.buildId))
+        }
+        if (variant.size > 0) add(Formatter.formatShortFileSize(context, variant.size))
+    }.joinToString(" · ")
 }
 
 private fun queryDisplayName(context: Context, uri: Uri): String = try {
@@ -1615,7 +2116,7 @@ private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Uni
             when {
                 installState.busy -> InfiniteProgressIndicator(
                     size = 44.dp,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = MiuixTheme.colorScheme.onSurface,
                     strokeWidth = 3.dp,
                     orbitingDotSize = 3.dp,
                 )
@@ -1639,11 +2140,11 @@ private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Uni
                             painter = painterResource(R.drawable.ic_kernelsu),
                             contentDescription = null,
                             modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onSurface,
+                            tint = MiuixTheme.colorScheme.onSurface,
                         )
                         Text(
                             text = stringResource(R.string.status_ksu_active),
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MiuixTheme.textStyles.title2,
                         )
                     }
                 } else {
@@ -1652,7 +2153,7 @@ private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Uni
                             InstallPhase.Ready -> stringResource(R.string.status_not_installed)
                             else -> installState.message
                         },
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MiuixTheme.textStyles.title2,
                     )
                 }
                 Text(
@@ -1667,8 +2168,8 @@ private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Uni
                         InstallPhase.Failed -> stringResource(R.string.install_tap_retry)
                         else -> stringResource(R.string.install_tap_start)
                     },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     maxLines = 1,
                 )
             }
@@ -1692,7 +2193,7 @@ private fun ActivationHintCard() {
                 Icons.Rounded.Info,
                 contentDescription = null,
                 modifier = Modifier.size(24.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
             Column(
                 modifier = Modifier.weight(1f),
@@ -1700,13 +2201,13 @@ private fun ActivationHintCard() {
             ) {
                 Text(
                     stringResource(R.string.activation_hint_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MiuixTheme.textStyles.title2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
                 Text(
                     stringResource(R.string.activation_hint_body),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.86f),
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.86f),
                     maxLines = 4,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -1757,7 +2258,7 @@ private fun DeviceCard(device: DeviceSnapshot) {
                     // emoji 的字形/颜色由系统字体决定，实测渲染成白色，区分不出来。
                     // 06 → 黄；07 及以后 → 红
                     tint = when (risk) {
-                        PatchRisk.LIKELY_FIXED -> MaterialTheme.colorScheme.error
+                        PatchRisk.LIKELY_FIXED -> MiuixTheme.colorScheme.error
                         PatchRisk.MAYBE_FIXED -> PatchWarnYellow
                         PatchRisk.NONE -> Color.Unspecified
                     },
@@ -1792,11 +2293,11 @@ private fun InfoRow(
         Icon(
             icon,
             contentDescription = null,
-            tint = if (tint == Color.Unspecified) MaterialTheme.colorScheme.primary else tint,
+            tint = if (tint == Color.Unspecified) MiuixTheme.colorScheme.primary else tint,
         )
         Column {
-            Text(label, style = MaterialTheme.typography.titleSmall)
-            Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(label, style = MiuixTheme.textStyles.title4)
+            Text(value, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
     }
 }
@@ -1866,7 +2367,7 @@ private fun HistoryList(
         item {
             Text(
                 text = stringResource(R.string.history_title),
-                style = MaterialTheme.typography.headlineLarge,
+                style = MiuixTheme.textStyles.headline1,
                 modifier = Modifier.padding(top = Spacing.page, bottom = Spacing.item),
             )
         }
@@ -1894,11 +2395,11 @@ private fun EmptyHistoryCard() {
         ) {
             Icon(Icons.Rounded.History, contentDescription = null, modifier = Modifier.size(32.dp))
             Column {
-                Text(stringResource(R.string.history_empty_title), style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.history_empty_title), style = MiuixTheme.textStyles.title2)
                 Text(
                     stringResource(R.string.history_empty_description),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
         }
@@ -1926,11 +2427,11 @@ private fun HistoryEntryCard(entry: InstallHistoryEntry, onClick: () -> Unit) {
                 tint = accent,
             )
             Column(modifier = Modifier.weight(1f)) {
-                Text(historyResultLabel(entry.result), style = MaterialTheme.typography.titleMedium)
+                Text(historyResultLabel(entry.result), style = MiuixTheme.textStyles.title2)
                 Text(
                     formatHistoryTime(entry.startedAtMillis),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
             Icon(
@@ -1954,11 +2455,11 @@ private fun HistoryEntryCard(entry: InstallHistoryEntry, onClick: () -> Unit) {
  */
 @Composable
 private fun historyResultAccent(result: InstallRunResult): Color = when (result) {
-    InstallRunResult.Running -> MaterialTheme.colorScheme.primary
+    InstallRunResult.Running -> MiuixTheme.colorScheme.primary
     // **不再区分成功 / 失败**：这条链在蓝厂（vivo/iQOO）机器上会被厂商的反 root 拦下，
     // 判定"失败"既不准也没意义 —— 运行记录只负责**记录过程**。
     // 是否真的装上了，看首页的 KernelSU 状态就够了（那是实测出来的，不是推断的）。
-    else -> MaterialTheme.colorScheme.onSurfaceVariant
+    else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
 }
 
 @Composable
@@ -1996,7 +2497,7 @@ private fun HistoryDetail(
                 }
                 Text(
                     stringResource(R.string.history_detail_title),
-                    style = MaterialTheme.typography.headlineLarge,
+                    style = MiuixTheme.textStyles.headline1,
                     modifier = Modifier.weight(1f),
                 )
                 // 保存到**指定目录**（系统文件选择器，用户可以挑任意位置）
@@ -2032,9 +2533,9 @@ private fun HistoryDetail(
                 Text(
                     text = entry.log.ifBlank { stringResource(R.string.history_log_empty) },
                     modifier = Modifier.padding(Spacing.card),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MiuixTheme.textStyles.footnote1,
                     fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = MiuixTheme.colorScheme.onSurface,
                 )
             }
         }
@@ -2059,24 +2560,24 @@ private fun HistoryResultCard(entry: InstallHistoryEntry) {
                 tint = accent,
             )
             Column {
-                Text(historyResultLabel(entry.result), style = MaterialTheme.typography.titleLarge)
+                Text(historyResultLabel(entry.result), style = MiuixTheme.textStyles.title1)
                 Text(
                     stringResource(R.string.history_started, formatHistoryTime(entry.startedAtMillis)),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
                 entry.completedAtMillis?.let { completedAt ->
                     Text(
                         stringResource(R.string.history_completed, formatHistoryTime(completedAt)),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
                 }
                 entry.profileId?.let { profileId ->
                     Text(
                         stringResource(R.string.history_payload, profileId),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
                 }
                 Text(
@@ -2087,8 +2588,8 @@ private fun HistoryResultCard(entry: InstallHistoryEntry) {
                             R.string.history_shizuku_not_used
                         },
                     ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
         }
@@ -2165,8 +2666,8 @@ private fun KernelSeriesChooser(
     Column {
         Text(
             "按 boot.img 实测的版本自动选方案；也可强制指定。主线 6.6 / 6.12。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
         )
         Spacer(Modifier.height(6.dp))
         SeriesOverride.entries.forEach { option ->
@@ -2189,12 +2690,12 @@ private fun KernelSeriesChooser(
                 RadioButton(selected = option == override, onClick = null, enabled = true)
                 Text(
                     option.label,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MiuixTheme.textStyles.body1,
                     color = if (option.tier == KernelTier.TEST) {
                         // 测试线用次要色，一眼能和主线区分（标签里也带「测试」字样）
-                        MaterialTheme.colorScheme.onSurfaceVariant
+                        MiuixTheme.colorScheme.onSurfaceVariantSummary
                     } else {
-                        MaterialTheme.colorScheme.onSurface
+                        MiuixTheme.colorScheme.onSurface
                     },
                 )
             }
@@ -2202,15 +2703,15 @@ private fun KernelSeriesChooser(
         Spacer(Modifier.height(2.dp))
         Text(
             "主线 6.6 / 6.12 ；5.x 仅作测试。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
         )
         if (override == SeriesOverride.FORCE_5) {
             Spacer(Modifier.height(6.dp))
             Text(
                 "⚠ 5.x 的偏移只来自上游 target.h，本工程未实测验证，请只用于 beta。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.error,
             )
         }
     }
@@ -2236,10 +2737,12 @@ private fun SettingsPage(
     var showLanguageDialog by remember { mutableStateOf(false) }
     var showColorDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
+    var showDonationDialog by remember { mutableStateOf(false) }
     var showShizukuMissingDialog by remember { mutableStateOf(false) }
     var languageMenuTop by remember { mutableStateOf(32.dp) }
     var colorMenuTop by remember { mutableStateOf(32.dp) }
     var showKernelDialog by remember { mutableStateOf(false) }
+    var showCoverageDialog by remember { mutableStateOf(false) }
     var kernelMenuTop by remember { mutableStateOf(32.dp) }
     var seriesOverride by remember { mutableStateOf(AppPreferences.kernelSeriesOverride(context)) }
     var allowMismatch by remember { mutableStateOf(AppPreferences.allowAbiMismatch(context)) }
@@ -2293,6 +2796,45 @@ private fun SettingsPage(
         )
     }
 
+    // ── 基线覆盖面（注册表诊断）──────────────────────────────────
+    // 这是 [BaselineRegistry.coverageReport] / [feasibilityCoverage] / [statusCounts]
+    // 的**唯一生产入口** —— 在此之前它们只有单测在读，等于"算出来了但没人看得到"。
+    // 放在设置里而不是构建页：它是"本工具到底覆盖了什么"的说明，不是每次构建都要看的东西。
+    if (showCoverageDialog) {
+        AlertDialog(
+            onDismissRequest = { showCoverageDialog = false },
+            icon = { Icon(Icons.Rounded.VerifiedUser, contentDescription = null) },
+            title = {
+                DialogDimAmount(0.24f)
+                Text("基线覆盖面")
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    BaselineRegistry.coverageReport().forEach {
+                        Text(it, style = MiuixTheme.textStyles.footnote1)
+                    }
+                    Text(
+                        BaselineRegistry.feasibilityCoverage(),
+                        style = MiuixTheme.textStyles.footnote1,
+                    )
+                    Text(
+                        "偏移可信度：" + BaselineRegistry.statusCounts().entries
+                            .joinToString("、") { "${it.key.label} ${it.value} 档" },
+                        style = MiuixTheme.textStyles.footnote1,
+                    )
+                    Text(
+                        "实测档才可直接构建；beta 档是按同族偏移派生的，未在真机验证过。",
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showCoverageDialog = false }) { Text("知道了") }
+            },
+        )
+    }
+
     if (showTestKernelConfirm) {
         AlertDialog(
             onDismissRequest = { showTestKernelConfirm = false },
@@ -2306,7 +2848,7 @@ private fun SettingsPage(
                     "5.x 属测试线：本工程对它的布局锚点只有上游 target.h 一条腿，" +
                         "没有 BTF / 反汇编实测，偏移是否与你的机器一致**未经本工程验证**。" +
                         "开启后识别到 5.x 就会采用五系方案构建，请只用于 beta 验证。",
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MiuixTheme.textStyles.body2,
                 )
             },
             confirmButton = {
@@ -2355,6 +2897,10 @@ private fun SettingsPage(
         show = showAboutDialog,
         onDismiss = { showAboutDialog = false },
     )
+    DonationDialog(
+        show = showDonationDialog,
+        onDismiss = { showDonationDialog = false },
+    )
 
     val layoutDirection = LocalLayoutDirection.current
     LazyColumn(
@@ -2370,11 +2916,11 @@ private fun SettingsPage(
     ) {
         item {
             Column(modifier = Modifier.padding(top = Spacing.page, bottom = Spacing.card)) {
-                Text(stringResource(R.string.settings), style = MaterialTheme.typography.headlineLarge)
+                Text(stringResource(R.string.settings), style = MiuixTheme.textStyles.headline1)
                 Text(
                     stringResource(R.string.version_format, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MiuixTheme.textStyles.body1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
         }
@@ -2477,6 +3023,12 @@ private fun SettingsPage(
                     summary = "强制指定或基线 ABI 与实测不符时仍然出包（会记入日志）",
                     startAction = { PreferenceIcon(Icons.Rounded.Warning) },
                 )
+                ArrowPreference(
+                    title = "基线覆盖面",
+                    summary = "注册表实际登记了哪些内核档位，以及与上游清单的对账",
+                    startAction = { PreferenceIcon(Icons.Rounded.VerifiedUser) },
+                    onClick = { showCoverageDialog = true },
+                )
                 SwitchPreference(
                     checked = allowTestKernel,
                     // 打开这个开关等于承认"用未验证的 5.x 偏移去改内核内存"，
@@ -2487,6 +3039,20 @@ private fun SettingsPage(
                     title = stringResource(R.string.test_kernel_switch),
                     summary = stringResource(R.string.test_kernel_switch_description),
                     startAction = { PreferenceIcon(Icons.Rounded.Security) },
+                )
+            }
+        }
+        // ── 打赏（单独一组，放在「关于」上面）────────────────────────
+        // 之所以不塞进「关于」卡片里：那是个信息区，而这是唯一一个希望用户**主动点**
+        // 的入口；混在一起会被当成说明文字划过去。
+        item { SectionLabel(stringResource(R.string.donation)) }
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                ArrowPreference(
+                    title = stringResource(R.string.donation),
+                    summary = stringResource(R.string.donation_description),
+                    startAction = { PreferenceIcon(Icons.Rounded.Favorite) },
+                    onClick = { showDonationDialog = true },
                 )
             }
         }
@@ -2530,8 +3096,140 @@ private fun schemeDetail(scheme: PayloadScheme): Int = when (scheme) {
  *
  * [确认键 10 秒冷却] 见 [PatchWarningCooldownSeconds] —— 冷却的是手速，不是权利。
  */
+/**
+ * 「自动匹配结果」的信息块。
+ *
+ * **内核版本必须对着显示**：上面是设备真实的内核，下面是所选载荷编译时对着的内核。
+ * 两者不一致时给出明确警示 —— 载荷靠编译期常量寻址内核符号，内核对不上就是提权直接失败，
+ * 而这恰恰是用户自己看不出来的那一层（界面上以前只显示"已匹配"，没说匹配到哪个内核）。
+ *
+ * 做成纯展示组件、不持有状态，是为了让**弹窗**与**内联**两种呈现共用同一段内容 ——
+ * 否则两处迟早会说出不一样的话。
+ */
+@Composable
+private fun PayloadMatchBlock(
+    device: DeviceSnapshot,
+    entry: BundledPayloadCatalog.BundledPayload?,
+    tier: BundledPayloadCatalog.MatchTier?,
+    manual: Boolean,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        MatchLine(stringResource(R.string.match_device_line, device.identityText.ifBlank { device.model }))
+        MatchLine(stringResource(R.string.match_device_kernel, device.kernelVersion))
+        if (entry == null) {
+            Text(
+                stringResource(R.string.match_none),
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.error,
+            )
+            Text(
+                stringResource(R.string.match_none_hint),
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+            return@Column
+        }
+        MatchLine(stringResource(R.string.match_payload_line, entry.displayName))
+        if (entry.kernelUnknown || entry.kernelVersion == null) {
+            Text(
+                stringResource(R.string.match_payload_kernel_unknown),
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        } else {
+            MatchLine(stringResource(R.string.match_payload_kernel, entry.kernelVersion))
+            // 内核一致性判定：只在两边都有版本号时才有意义
+            val agree = entry.kernelVersion == device.kernelVersion
+            Text(
+                text = stringResource(
+                    if (agree) R.string.match_kernel_agree else R.string.match_kernel_differ,
+                ),
+                style = MiuixTheme.textStyles.footnote1,
+                color = if (agree) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.error,
+            )
+        }
+        val tierRes = when {
+            manual -> R.string.match_tier_exact
+            tier == BundledPayloadCatalog.MatchTier.Exact -> R.string.match_tier_exact
+            tier == BundledPayloadCatalog.MatchTier.SameKernel -> R.string.match_tier_same_kernel
+            tier == BundledPayloadCatalog.MatchTier.SimilarDevice -> R.string.match_tier_similar
+            else -> 0
+        }
+        if (tierRes != 0) {
+            Text(
+                stringResource(tierRes),
+                style = MiuixTheme.textStyles.footnote2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+        }
+    }
+}
+
+/** 信息块里的一行「标签：值」。值统一用等宽，方便上下比对内核版本。 */
+@Composable
+private fun MatchLine(text: String) {
+    Text(
+        text = text,
+        style = MiuixTheme.textStyles.body2,
+        color = MiuixTheme.colorScheme.onSurface,
+    )
+}
+
+/**
+ * 「自动匹配结果」弹窗 —— 只在 **7 月及以后补丁**（[PatchRisk.LIKELY_FIXED]）时弹。
+ *
+ * 那类机器大概率已经把漏洞修掉了，值得让用户先看清楚将要使用哪份载荷、内核对不对得上，
+ * 再决定要不要继续；6 月及以下只在安装确认弹窗里内联显示同一段内容，不额外打断。
+ */
+@Composable
+private fun PayloadMatchDialog(
+    show: Boolean,
+    device: DeviceSnapshot,
+    entry: BundledPayloadCatalog.BundledPayload?,
+    tier: BundledPayloadCatalog.MatchTier?,
+    manual: Boolean,
+    onDismiss: () -> Unit,
+    onContinue: () -> Unit,
+) {
+    OverlayDialog(
+        show = show,
+        onDismissRequest = onDismiss,
+        title = stringResource(R.string.match_dialog_title),
+        renderInRootScaffold = false,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                stringResource(R.string.match_dialog_hint),
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+            PayloadMatchBlock(device, entry, tier, manual)
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            TextButton(
+                text = stringResource(R.string.action_cancel),
+                onClick = onDismiss,
+                modifier = Modifier.weight(1f),
+            )
+            Button(
+                onClick = onContinue,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColorsPrimary(),
+            ) {
+                Text(stringResource(R.string.action_continue))
+            }
+        }
+    }
+}
+
 @Composable
 private fun PatchWarningDialog(
+    show: Boolean,
     risk: PatchRisk,
     patch: String,
     onDismiss: () -> Unit,
@@ -2549,49 +3247,63 @@ private fun PatchWarningDialog(
             remaining -= 1
         }
     }
-    AlertDialog(
+    // [2026-09-24] 从 Material3 `AlertDialog` 换成 miuix `OverlayDialog`。
+    // 它原来是全应用**唯一**还是 Material3 外形的弹窗 —— 和「安装确认」
+    // 「自动匹配结果」并排出现时，圆角、留白、按钮形状都不是一套，一眼看得出来。
+    OverlayDialog(
+        show = show,
         onDismissRequest = onDismiss,
-        icon = {
-            Icon(
-                Icons.Rounded.Warning,
-                contentDescription = null,
-                tint = if (red) MaterialTheme.colorScheme.error else PatchWarnYellow,
-            )
-        },
-        title = {
-            DialogDimAmount(0.24f)
+        title = if (red) "七月份安全补丁已合并幽灵锁修复" else "六月安全补丁可能已合并幽灵锁修复",
+        titleColor = if (red) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurface,
+        renderInRootScaffold = false,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    Icons.Rounded.Warning,
+                    contentDescription = null,
+                    tint = if (red) MiuixTheme.colorScheme.error else PatchWarnYellow,
+                )
+                Text(
+                    text = "当前安全补丁：$patch",
+                    style = MiuixTheme.textStyles.body2,
+                )
+            }
             Text(
-                text = if (red) "七月份安全补丁已合并幽灵锁修复" else "六月安全补丁可能已合并幽灵锁修复",
-                color = if (red) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                text = if (red) {
+                    "七月份安全补丁已经合并幽灵锁漏洞补丁，大概率无法正常使用。" +
+                        "提权很可能跑不完或中途失败，属于预期现象，不是本工具坏了。"
+                } else {
+                    "6 月安全补丁可能已经合并幽灵锁漏洞的修复。" +
+                        "能不能成功要实测才知道 —— 这里只是提醒，不做任何限制。"
+                },
+                style = MiuixTheme.textStyles.body2,
             )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = if (red) {
-                        "当前安全补丁：$patch\n\n" +
-                            "七月份安全补丁已经合并幽灵锁漏洞补丁，大概率无法正常使用。" +
-                            "提权很可能跑不完或中途失败，属于预期现象，不是本工具坏了。"
-                    } else {
-                        "当前安全补丁：$patch\n\n" +
-                            "6 月安全补丁可能已经合并幽灵锁漏洞的修复。" +
-                            "能不能成功要实测才知道 —— 这里只是提醒，不做任何限制。"
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            TextButton(
+                text = stringResource(R.string.action_cancel),
+                onClick = onDismiss,
+                modifier = Modifier.weight(1f),
+            )
+            Button(
+                onClick = onContinue,
+                enabled = remaining == 0,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColorsPrimary(),
+            ) {
+                Text(if (remaining > 0) "请稍候（$remaining）" else "继续")
             }
-        },
-        confirmButton = {
-            FilledTonalButton(onClick = onContinue, enabled = remaining == 0) {
-                Text(
-                    if (remaining > 0) "请稍候（$remaining）" else "我已了解，继续",
-                )
-            }
-        },
-        dismissButton = {
-            Button(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
-        },
-    )
+        }
+    }
 }
 
 /**
@@ -2616,7 +3328,7 @@ private fun RootHandoffConfirmDialog(
         text = {
             Text(
                 stringResource(R.string.root_handoff_confirm_body),
-                style = MaterialTheme.typography.bodyMedium,
+                style = MiuixTheme.textStyles.body2,
             )
         },
         confirmButton = {
@@ -2654,12 +3366,12 @@ private fun RootManagerSheet(
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     text = stringResource(R.string.root_handoff_sheet_title),
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = MiuixTheme.textStyles.headline2,
                 )
                 Text(
                     text = stringResource(R.string.root_handoff_sheet_subtitle),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
             }
             RootManager.entries.forEachIndexed { index, manager ->
@@ -2677,7 +3389,7 @@ private fun RootManagerSheet(
                             imageVector = Icons.Rounded.Security,
                             contentDescription = null,
                             modifier = Modifier.size(26.dp),
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = MiuixTheme.colorScheme.primary,
                         )
                         Column(
                             modifier = Modifier.weight(1f),
@@ -2685,7 +3397,7 @@ private fun RootManagerSheet(
                         ) {
                             Text(
                                 text = "${index + 1}. ${manager.displayName}",
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MiuixTheme.textStyles.title2,
                             )
                             Text(
                                 text = stringResource(
@@ -2694,13 +3406,13 @@ private fun RootManagerSheet(
                                         RootManager.SUKISU_ULTRA -> R.string.root_handoff_sukisu_desc
                                     },
                                 ),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             )
                             Text(
                                 text = manager.packageName,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                style = MiuixTheme.textStyles.footnote2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.7f),
                             )
                         }
                     }
@@ -2720,7 +3432,7 @@ private fun HandoffProgressDialog(managerName: String) {
             // 不引入第二种转圈样式。
             LoadingIndicator(
                 modifier = Modifier.size(28.dp),
-                color = MaterialTheme.colorScheme.primary,
+                color = MiuixTheme.colorScheme.primary,
             )
         },
         title = {
@@ -2733,8 +3445,8 @@ private fun HandoffProgressDialog(managerName: String) {
             // 现在用专门的进行中文案，并提醒用户可能会弹 root 授权框。
             Text(
                 stringResource(R.string.root_handoff_running_body),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
         },
         confirmButton = {},
@@ -2754,7 +3466,7 @@ private fun HandoffResultDialog(lines: List<String>, onDismiss: () -> Unit) {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 lines.forEach { line ->
-                    Text(line, style = MaterialTheme.typography.bodySmall)
+                    Text(line, style = MiuixTheme.textStyles.footnote1)
                 }
             }
         },
@@ -2795,8 +3507,8 @@ private fun PayloadSchemeSheet(
         ) {
             Text(
                 text = stringResource(R.string.builder_scheme_subtitle),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
             PayloadScheme.entries.forEachIndexed { index, scheme ->
                 val recommended = scheme == PayloadScheme.Universal
@@ -2815,9 +3527,9 @@ private fun PayloadSchemeSheet(
                             contentDescription = null,
                             modifier = Modifier.size(26.dp),
                             tint = if (recommended) {
-                                MaterialTheme.colorScheme.primary
+                                MiuixTheme.colorScheme.primary
                             } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
+                                MiuixTheme.colorScheme.onSurfaceVariantSummary
                             },
                         )
                         Column(modifier = Modifier.weight(1f)) {
@@ -2827,27 +3539,27 @@ private fun PayloadSchemeSheet(
                             ) {
                                 Text(
                                     text = "${index + 1}. " + stringResource(schemeTitle(scheme)),
-                                    style = MaterialTheme.typography.titleMedium,
+                                    style = MiuixTheme.textStyles.title2,
                                 )
                                 if (recommended) {
                                     Text(
                                         text = stringResource(R.string.builder_scheme_recommended),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.primary,
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.primary,
                                     )
                                 }
                             }
                             Text(
                                 text = stringResource(schemeDetail(scheme)),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 modifier = Modifier.padding(top = 2.dp),
                             )
                         }
                         Icon(
                             imageVector = Icons.Rounded.ChevronRight,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
                     }
                 }
@@ -2886,9 +3598,85 @@ private fun PayloadBuilderPage(
     val context = LocalContext.current
     val layoutDirection = LocalLayoutDirection.current
     val logScroll = rememberScrollState()
+
+    // ── offsets.json 导入（阶段 1 的界面入口）──────────────────────────
+    // 解析全部交给 [GhostLockOffsetsIo]；这里只负责选文件与呈现结果。
+    // 数据层已经有 17 条单测（含真实荣耀样本往返），所以界面这层刻意做薄 ——
+    // 出问题时能立刻判定是数据层还是 UI 层。
+    var offsetsDoc by remember { mutableStateOf<OffsetsDocument?>(null) }
+    var offsetsErr by remember { mutableStateOf<String?>(null) }
+    var showOffsets by remember { mutableStateOf(false) }
+    val offsetsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.openInputStream(uri)
+                ?.bufferedReader()?.use { it.readText() }
+                ?: error("无法打开输入流")
+        }.mapCatching { GhostLockOffsetsIo.read(it) }
+            .onSuccess { offsetsDoc = it; offsetsErr = null; showOffsets = true }
+            .onFailure { offsetsDoc = null; offsetsErr = it.message ?: "解析失败"; showOffsets = true }
+    }
     // 日志增长时自动贴底：构建过程中永远看得到最新一行。
     LaunchedEffect(state.log.size) {
         if (state.log.isNotEmpty()) logScroll.scrollTo(logScroll.maxValue)
+    }
+
+    // offsets.json 读取结果。**只呈现、不改行为** —— 数据层已单测覆盖，
+    // 这一步让用户能看到"到底读到了什么"，而不是盲信一个"导入成功"。
+    OverlayDialog(
+        show = showOffsets,
+        onDismissRequest = { showOffsets = false },
+        title = stringResource(R.string.offsets_dialog_title),
+        renderInRootScaffold = false,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            val err = offsetsErr
+            val doc = offsetsDoc
+            when {
+                err != null -> Text(
+                    stringResource(R.string.offsets_error, err),
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.error,
+                )
+                doc != null -> {
+                    Text(
+                        stringResource(R.string.offsets_release, doc.release ?: "—"),
+                        style = MiuixTheme.textStyles.body2,
+                    )
+                    Text(
+                        stringResource(R.string.offsets_counts, doc.symbols.size, doc.structFields.size),
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                    val ms = doc.missingSymbols().size
+                    val mf = doc.missingStructFields().size
+                    if (ms > 0 || mf > 0) {
+                        Text(
+                            stringResource(R.string.offsets_missing, ms, mf),
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        )
+                    }
+                    // 把"未知键被保留"这件事显式告诉用户 —— 这正是往返不丢数据的保证
+                    if (doc.unknown.isNotEmpty()) {
+                        Text(
+                            stringResource(R.string.offsets_unknown, doc.unknown.size),
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+        }
+        TextButton(
+            text = stringResource(R.string.action_confirm),
+            onClick = { showOffsets = false },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 20.dp),
+        )
     }
 
     // ── 硬阻断弹窗（P1 的规矩：阻断必须弹窗，不能只把字标红）──
@@ -2911,7 +3699,7 @@ private fun PayloadBuilderPage(
             text = {
                 Text(
                     text = state.error.orEmpty(),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MiuixTheme.textStyles.footnote1,
                 )
             },
             confirmButton = {
@@ -2961,22 +3749,35 @@ private fun PayloadBuilderPage(
                         imageVector = Icons.Rounded.Build,
                         contentDescription = null,
                         modifier = Modifier.size(28.dp),
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = MiuixTheme.colorScheme.primary,
                     )
                     Text(
                         text = stringResource(R.string.builder_heading),
-                        style = MaterialTheme.typography.headlineLarge,
+                        style = MiuixTheme.textStyles.headline1,
                     )
                 }
                 Text(
                     text = stringResource(R.string.builder_description),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
         }
 
+        // offsets.json 入口。放在 boot.img 之前：它是**可选增强**，
+        // 不选也能照常构建（我方基线仍作编译期兜底）—— 这正是 GhostLock
+        // `_RSO(field, fallback)` 那套 fallback+override 的用法。
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                ArrowPreference(
+                    title = stringResource(R.string.offsets_import),
+                    summary = stringResource(R.string.offsets_import_desc),
+                    startAction = { PreferenceIcon(Icons.Rounded.Save) },
+                    onClick = { offsetsLauncher.launch(arrayOf("application/json", "*/*")) },
+                )
+            }
+        }
         item { SectionLabel(stringResource(R.string.builder_section_input)) }
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -2992,12 +3793,12 @@ private fun PayloadBuilderPage(
                             imageVector = Icons.Rounded.Memory,
                             contentDescription = null,
                             modifier = Modifier.size(26.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = stringResource(R.string.builder_boot_image),
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MiuixTheme.textStyles.title2,
                             )
                             Text(
                                 text = if (state.sourceName.isBlank()) {
@@ -3008,8 +3809,8 @@ private fun PayloadBuilderPage(
                                 } else {
                                     state.sourceName
                                 },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -3017,8 +3818,8 @@ private fun PayloadBuilderPage(
                     }
                     Text(
                         text = stringResource(R.string.builder_boot_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     )
                     // 一上一下：先选文件、再开始构建。两步是**有先后**的，
                     // 并排放会让人以为可以随便点其中一个。
@@ -3072,12 +3873,12 @@ private fun PayloadBuilderPage(
                         Column {
                             Text(
                                 text = stringResource(R.string.builder_running),
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MiuixTheme.textStyles.title2,
                             )
                             Text(
                                 text = state.log.lastOrNull().orEmpty(),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -3096,7 +3897,7 @@ private fun PayloadBuilderPage(
                     ) {
                         Text(
                             text = stringResource(R.string.builder_log_title),
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MiuixTheme.textStyles.title2,
                         )
                         Text(
                             text = state.log.takeLast(LOG_TAIL_LINES).joinToString("\n"),
@@ -3107,7 +3908,7 @@ private fun PayloadBuilderPage(
                             fontFamily = FontFamily.Monospace,
                             fontSize = 11.sp,
                             lineHeight = 16.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         )
                     }
                 }
@@ -3126,12 +3927,12 @@ private fun PayloadBuilderPage(
                             imageVector = Icons.Rounded.Error,
                             contentDescription = null,
                             modifier = Modifier.size(26.dp),
-                            tint = MaterialTheme.colorScheme.error,
+                            tint = MiuixTheme.colorScheme.error,
                         )
                         Text(
                             text = message,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error,
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.error,
                         )
                     }
                 }
@@ -3150,17 +3951,17 @@ private fun PayloadBuilderPage(
                             imageVector = Icons.Rounded.Build,
                             contentDescription = null,
                             modifier = Modifier.size(22.dp),
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = MiuixTheme.colorScheme.primary,
                         )
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
                                 text = stringResource(schemeTitle(scheme)),
-                                style = MaterialTheme.typography.titleSmall,
+                                style = MiuixTheme.textStyles.title4,
                             )
                             Text(
                                 text = scheme.versionLabel,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.primary,
                             )
                             if (state.baseLibraryName.isNotBlank()) {
                                 Text(
@@ -3172,9 +3973,9 @@ private fun PayloadBuilderPage(
                                             state.baseLibrarySize,
                                         ),
                                     ) + " · sha256 " + state.baseLibrarySha256.take(16) + "…",
-                                    style = MaterialTheme.typography.bodySmall,
+                                    style = MiuixTheme.textStyles.footnote1,
                                     fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 )
                             }
                         }
@@ -3213,18 +4014,18 @@ private fun PayloadBuilderPage(
                                 imageVector = Icons.Rounded.Warning,
                                 contentDescription = null,
                                 modifier = Modifier.size(22.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             )
                             Text(
                                 text = stringResource(R.string.builder_notices),
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MiuixTheme.textStyles.title2,
                             )
                         }
                         state.notices.forEach { notice ->
                             Text(
                                 text = "· $notice",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             )
                         }
                     }
@@ -3248,29 +4049,29 @@ private fun PayloadBuilderPage(
                                 imageVector = Icons.Rounded.CheckCircle,
                                 contentDescription = null,
                                 modifier = Modifier.size(26.dp),
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = MiuixTheme.colorScheme.primary,
                             )
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = state.outputName,
-                                    style = MaterialTheme.typography.titleMedium,
+                                    style = MiuixTheme.textStyles.title2,
                                 )
                                 Text(
                                     text = stringResource(
                                         R.string.builder_output_size,
                                         android.text.format.Formatter.formatFileSize(context, state.outputSize),
                                     ),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 )
                                 Text(
                                     text = stringResource(
                                         R.string.builder_output_sha,
                                         state.outputSha256.take(32) + "…",
                                     ),
-                                    style = MaterialTheme.typography.bodySmall,
+                                    style = MiuixTheme.textStyles.footnote1,
                                     fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 )
                             }
                         }
@@ -3293,13 +4094,13 @@ private fun PayloadBuilderPage(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = stringResource(R.string.builder_set_as_payload),
-                                style = MaterialTheme.typography.titleSmall,
+                                style = MiuixTheme.textStyles.title4,
                             )
                         }
                         if (state.appliedAsPayload) {
                             Text(
                                 text = stringResource(R.string.builder_applied_state),
-                                style = MaterialTheme.typography.bodySmall,
+                                style = MiuixTheme.textStyles.footnote1,
                                 color = MiuixTheme.colorScheme.primary,
                             )
                         }
@@ -3334,8 +4135,8 @@ private const val LOG_TAIL_LINES = 60
 private fun SectionLabel(text: String) {
     Text(
         text = text,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.primary,
+        style = MiuixTheme.textStyles.button,
+        color = MiuixTheme.colorScheme.primary,
         modifier = Modifier.padding(start = Spacing.card, top = 6.dp, bottom = 2.dp),
     )
 }
@@ -3354,7 +4155,7 @@ private fun PreferenceIcon(icon: ImageVector) {
 private fun PreferenceValue(value: String) {
     Text(
         text = value,
-        style = MaterialTheme.typography.labelLarge,
+        style = MiuixTheme.textStyles.button,
         color = MiuixTheme.colorScheme.onSurfaceVariantActions,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
@@ -3417,8 +4218,8 @@ private fun KernelTooOldDialog(
             Text(stringResource(R.string.kernel_gate_body, kernelVersion))
             Text(
                 text = stringResource(R.string.kernel_gate_shizuku_hint),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
         }
         Row(
@@ -3473,6 +4274,55 @@ private const val PatchWarningCooldownSeconds = 10
  */
 private val PatchWarnYellow = Color(0xFFF5A623)
 
+/**
+ * 打赏弹窗：展示收款码。
+ *
+ * 图片是用户提供的**整张微信收款页**（1490×2030 竖版，自带绿色页头与页脚），
+ * 不是裁好的纯二维码 —— 所以按内容宽度等比缩放并限高，
+ * 直接铺满会把弹窗撑到一屏放不下。
+ *
+ * 与「关于」用同一个 [OverlayDialog]，风格保持一致。
+ */
+@Composable
+private fun DonationDialog(show: Boolean, onDismiss: () -> Unit) {
+    OverlayDialog(
+        show = show,
+        onDismissRequest = onDismiss,
+        title = stringResource(R.string.donation_title),
+        renderInRootScaffold = false,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                stringResource(R.string.donation_body),
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+            Image(
+                painter = painterResource(R.drawable.donation_qr),
+                contentDescription = stringResource(R.string.donation_hint),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 380.dp),
+                contentScale = ContentScale.Fit,
+            )
+            Text(
+                stringResource(R.string.donation_hint),
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+            TextButton(
+                text = stringResource(R.string.action_confirm),
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
+}
+
 @Composable
 private fun AboutDialog(show: Boolean, onDismiss: () -> Unit) {
     val uriHandler = LocalUriHandler.current
@@ -3486,14 +4336,14 @@ private fun AboutDialog(show: Boolean, onDismiss: () -> Unit) {
                 Text(stringResource(R.string.about_body))
                 Text(
                     stringResource(R.string.version_format, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 )
                 HorizontalDivider()
                 Surface(
                     onClick = { uriHandler.openUri(KERNEL_SU_HOME_URL) },
                     color = Color.Transparent,
-                    shape = MaterialTheme.shapes.medium,
+                    shape = RoundedCornerShape(Radii.medium),
                 ) {
                     Row(
                         modifier = Modifier.padding(vertical = 4.dp),
@@ -3504,12 +4354,12 @@ private fun AboutDialog(show: Boolean, onDismiss: () -> Unit) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 stringResource(R.string.kernelsu_card_title),
-                                style = MaterialTheme.typography.titleSmall,
+                                style = MiuixTheme.textStyles.title4,
                             )
                             Text(
                                 stringResource(R.string.kernelsu_card_description),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             )
                         }
                         Icon(Icons.Rounded.Link, contentDescription = stringResource(R.string.open_github))
@@ -3518,7 +4368,7 @@ private fun AboutDialog(show: Boolean, onDismiss: () -> Unit) {
                 Surface(
                     onClick = { uriHandler.openUri(KSUROOT_URL) },
                     color = Color.Transparent,
-                    shape = MaterialTheme.shapes.medium,
+                    shape = RoundedCornerShape(Radii.medium),
                 ) {
                     Row(
                         modifier = Modifier.padding(vertical = 4.dp),
@@ -3529,12 +4379,12 @@ private fun AboutDialog(show: Boolean, onDismiss: () -> Unit) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 stringResource(R.string.ksuroot_card_title),
-                                style = MaterialTheme.typography.titleSmall,
+                                style = MiuixTheme.textStyles.title4,
                             )
                             Text(
                                 stringResource(R.string.ksuroot_card_description),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             )
                         }
                         Icon(Icons.Rounded.Link, contentDescription = stringResource(R.string.open_github))
@@ -3543,7 +4393,7 @@ private fun AboutDialog(show: Boolean, onDismiss: () -> Unit) {
                 Surface(
                     onClick = { uriHandler.openUri(ROOT_MY_GALAXY_URL) },
                     color = Color.Transparent,
-                    shape = MaterialTheme.shapes.medium,
+                    shape = RoundedCornerShape(Radii.medium),
                 ) {
                     Row(
                         modifier = Modifier.padding(vertical = 4.dp),
@@ -3554,12 +4404,12 @@ private fun AboutDialog(show: Boolean, onDismiss: () -> Unit) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 stringResource(R.string.github_card_title),
-                                style = MaterialTheme.typography.titleSmall,
+                                style = MiuixTheme.textStyles.title4,
                             )
                             Text(
                                 stringResource(R.string.github_card_description),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             )
                         }
                         Icon(Icons.Rounded.Link, contentDescription = stringResource(R.string.open_github))
@@ -3660,8 +4510,8 @@ private fun SideChoiceMenu(
                             indication = null,
                             onClick = {},
                         ),
-                    shape = MaterialTheme.shapes.extraLarge,
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    shape = RoundedCornerShape(Radii.extraLarge),
+                    color = MiuixTheme.colorScheme.surfaceContainerHighest,
                     shadowElevation = 0.dp,
                 ) {
                     LazyColumn(
@@ -3676,19 +4526,19 @@ private fun SideChoiceMenu(
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = if (selected) {
-                                    MaterialTheme.shapes.extraLarge
+                                    RoundedCornerShape(Radii.extraLarge)
                                 } else {
-                                    MaterialTheme.shapes.medium
+                                    RoundedCornerShape(Radii.medium)
                                 },
                                 color = if (selected) {
-                                    MaterialTheme.colorScheme.primaryContainer
+                                    MiuixTheme.colorScheme.primaryContainer
                                 } else {
                                     Color.Transparent
                                 },
                                 contentColor = if (selected) {
-                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                    MiuixTheme.colorScheme.onPrimaryContainer
                                 } else {
-                                    MaterialTheme.colorScheme.onSurface
+                                    MiuixTheme.colorScheme.onSurface
                                 },
                             ) {
                                 Row(
@@ -3706,7 +4556,7 @@ private fun SideChoiceMenu(
                                     Text(
                                         text = choice,
                                         modifier = Modifier.weight(1f),
-                                        style = MaterialTheme.typography.titleSmall,
+                                        style = MiuixTheme.textStyles.title4,
                                         maxLines = 1,
                                     )
                                 }

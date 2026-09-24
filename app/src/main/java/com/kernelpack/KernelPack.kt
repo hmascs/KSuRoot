@@ -13,7 +13,7 @@ import com.kernelpack.patch.PatchSpec
 import com.kernelpack.patch.SharedObjectPatcher
 import com.kernelpack.patch.SpecKind
 import com.kernelpack.profile.BaselineProfile
-import com.kernelpack.profile.BaselineProfiles
+import com.kernelpack.profile.BaselineRegistry
 import com.kernelpack.profile.BaselineScheme
 import com.kernelpack.resolve.KernelImage
 import com.kernelpack.resolve.OffsetResolver
@@ -188,8 +188,19 @@ object KernelPack {
         val offsets = resolver.resolve()
         for (f in resolver.failures()) log("[!] $f")
 
+        // [2026-09-25 修 · 与 PayloadBuilderViewModel 同一处错]
+        // 旧写法只查 [BaselineProfiles.detect]，而那张表只有 PD2520(6.6) / IONSTACK_P10(6.6)
+        // 两条 —— 拿 6.1 或 6.12 的基线库进来，detect() 会**兜底返回 PD2520**，
+        // 于是硬闸门报「基线 ABI 档位是 GKI 6.6 而 boot.img 是 6.1」把用户挡在门外。
+        //
+        // 现在只认**能自证身份**的匹配：sha256 命中，或 .so 里带着已登记档位的
+        // BUILD_VARIANT_LABEL 字符串（都在 [BaselineRegistry.findByBytes] 里）。
+        //
+        // 为什么**不再**保留"兜底取第一档"：那等于拿 6.6 的旧值去打 6.1 的库。
+        // 即便硬闸门这一次能拦住，兜底本身就是在制造"看起来有基线"的假象 ——
+        // 本工程两次勘误都是这个形态。认不出就如实报缺，由下面给出明确警告并停止打包。
         val baseline = request.baseline
-            ?: request.baseLibrary?.let { BaselineProfiles.detect(it) }
+            ?: request.baseLibrary?.let { BaselineRegistry.findByBytes(it)?.profile }
 
         val profile = TargetProfile(
             variantLabel = buildVariantLabel(analysis, baseline),
@@ -237,11 +248,38 @@ object KernelPack {
         }
 
         if (baseline == null) {
-            warnings.add("没有可用的基线档位，无法确定基础 .so 里的旧值，本次不打包")
+            warnings.add(
+                "这份基础 .so 对应不到任何已登记基线（sha256 与机型标签都没命中）—— " +
+                    "无法确定它里面的旧值，本次不打包。"
+            )
+            warnings.add(
+                "若这是 6.1 / 6.12 的族基线（libbaseline_6_1.so / libbaseline_6_12.so）：" +
+                    "它们**没有登记进偏移表**（编译期符号值未逐项核实，见 BaselineRegistry.BASELINE_6_1 的说明），" +
+                    "必须由调用方显式传入对应档位（PackRequest.baseline），本函数**不会**替你猜一个系列。"
+            )
             return PackResult(analysis, profile, null, null, null, header, json, warnings)
         }
 
-        // 组装 patch 规格
+        // ── 完整性闸门（★ 安全关键）──────────────────────────────────
+        //
+        // 打补丁只能改写**基线 .so 里本来就有的字面量**。因此两边必须**双向对齐**，
+        // 缺任何一边都会让产出的 .so 里留下一批"为别的内核烤死的旧值"，
+        // 而那是**静默**的：既不报错、也不 manifest 成失败，装机后才炸。
+        //
+        // 这条闸门的由来：上游 50 档每档只带 9 个符号，而我方必需键有 25 个。
+        // 原先的写法是 `baseline.symbolOffsets[key] ?: continue` —— 直接跳过，
+        // 于是"看起来支持、实际写错内存"。这正是本工程一直在防的假象，必须硬拦。
+        val align = SymbolAlignment.check(
+            baseKeys = baseline.symbolOffsets.keys,
+            resolvedKeys = offsets.filterValues { it.resolved }.keys,
+        )
+        if (!align.aligned) {
+            align.blockMessage(baseline.id, baseline.kernelVersion).forEach { log(it) }
+            warnings.add("[X] 符号对不齐，已停止打包（详见日志）")
+            return PackResult(analysis, profile, null, null, baseline, header, json, warnings)
+        }
+
+        // 组装 patch 规格（两边已对齐，无需再跳过任何键）
         val specs = ArrayList<PatchSpec>()
         specs.add(PatchSpec("KIMAGE_TEXT_BASE", baseline.imageBase, analysis.baseAddress, SpecKind.BASE))
         for ((key, entry) in offsets) {

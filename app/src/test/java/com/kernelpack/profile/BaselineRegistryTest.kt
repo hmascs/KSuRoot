@@ -329,10 +329,10 @@ class BaselineRegistryTest {
     // ---------------------------------------------------------------- 支持分级（2026-09-12 口径）
 
     @Test
-    fun `主线只列六点六与六点十二`() {
-        // 产品口径：通用方案与 vivo 方案都覆盖 6.6 / 6.12
-        assertEquals(listOf("6.6", "6.12"), BaselineRegistry.MAINLINE_SERIES)
-        assertTrue(BaselineRegistry.TEST_SERIES.all { it.startsWith("5.") })
+    fun `主线清单已含六点一`() {
+        // [2026-09-25] 由 [6.6, 6.12] 扩为 [6.1, 6.6, 6.12]：
+        // 6.1 有了专属基线，不再是"被排除在外的次版本"。
+        assertEquals(listOf("6.1", "6.6", "6.12"), BaselineRegistry.MAINLINE_SERIES)
     }
 
     @Test
@@ -340,8 +340,12 @@ class BaselineRegistryTest {
         // 6.x 一律主线 —— 含 6.12（虽然它与 6.6 同 nested 族）
         assertEquals(KernelTier.MAINLINE, tierOfRelease("6.12.23-android16-5-g82efd98459a2"))
         assertEquals(KernelTier.MAINLINE, tierOfRelease(k66))
-        // [2026-09-12] 6.1 已从主线移除：它是 6.x 但不在支持清单里 → 非主线
-        assertEquals(KernelTier.TEST, tierOfRelease(k61))
+        // [2026-09-25 更正] 6.1 **回到主线** —— 它现在有专属基线
+        // （`libbaseline_6_1.so`，6_1 族结构体偏移），不再是"拿 6.6 的偏移硬打"。
+        // 旧断言写的是 TEST，那是"没有 6.1 基线"时代的结论，已过时。
+        assertEquals(KernelTier.MAINLINE, tierOfRelease(k61))
+        // 真正没有基线的 6.x（6.2 / 6.5 / 6.7…）仍必须落非主线 —— 那是对的
+        assertEquals(KernelTier.TEST, tierOfRelease("6.5.1-android14-11-gabcdef123456"))
         // 5.x 一律测试
         assertEquals(KernelTier.TEST, tierOfRelease(k510))
         assertEquals(KernelTier.TEST, tierOfRelease("5.15.178-android13-8-gfb31f5bdd612"))
@@ -375,26 +379,43 @@ class BaselineRegistryTest {
     }
 
     @Test
-    fun `六点十二没有基线时报缺并说明它属于主线支持范围`() {
+    fun `六点十二对蓝厂已登记（衍生档）—— 不再报缺`() {
+        // [2026-09-25 口径变更] 这条原来断言"6.12 报缺"，那是 6.1/6.12 扩展**之前**的现实。
+        // 现在蓝厂 6.12 有衍生档（上游 6.12.23/30/38 派生而来），
+        // 再报"没有基线"就是**假警报** —— 用户明明能构建，界面却说不行。
         val r = BaselineRegistry.lookup("6.12.23-android16-5-g82efd98459a2", BaselineScheme.VIVO, "android16-5")
-        assertTrue("6.12 目前确实没有登记基线", r is BaselineLookup.Missing)
-        val m = r as BaselineLookup.Missing
-        assertTrue("要点明 6.12 属主线支持范围", m.notes.any { it.contains("主线") })
-        assertTrue("要区分「支持」与「已登记」",
-            m.howTo.any { it.contains("还没有登记") || it.contains("尚未登记") })
+        assertTrue("6.12 已有蓝厂衍生档，应当命中而不是报缺", r is BaselineLookup.Found)
+        val f = r as BaselineLookup.Found
+        assertEquals("6.12", BaselineRegistry.gkiSeriesOf(f.entry.kernelSeries))
+        assertTrue("衍生档必须标 beta —— 它没在蓝厂真机上跑过", f.entry.beta)
     }
 
     @Test
-    fun `覆盖率报告把两个方案的三个主线档都列出来`() {
+    fun `覆盖率报告如实反映三个主线系列都已登记`() {
         val rep = BaselineRegistry.coverageReport()
         for (scheme in listOf(BaselineScheme.UNIVERSAL, BaselineScheme.VIVO)) {
-            for (series in listOf("6.6", "6.12")) {
-                assertTrue("报告缺少 $series / ${scheme.label}", rep.any { it.contains(series) && it.contains(scheme.label) })
+            for (series in BaselineRegistry.MAINLINE_SERIES) {
+                // 用行首精确匹配：`6.12` 这一行里含子串 `6.1`，用 contains 会互相串味
+                val line = rep.firstOrNull { it.startsWith("$series · ${scheme.label}") }
+                assertTrue("报告缺少 $series / ${scheme.label} 这一行：$rep", line != null)
+                assertTrue(
+                    "$series / ${scheme.label} 已登记，报告却说未登记：$line",
+                    !line!!.contains("未登记"),
+                )
             }
         }
-        // 6.6 两条已登记，6.12 / 6.1 应显示未登记
-        assertTrue(rep.any { it.contains("6.6") && it.contains("已登记") && !it.contains("未登记") })
-        assertTrue(rep.any { it.contains("6.12") && it.contains("未登记") })
+    }
+
+    @Test
+    fun `覆盖率报告含上游清单对账 —— GhostLockKernelCatalog 的生产消费点`() {
+        // 这条守的是"孤儿数据"：上游 50 条内核串若没有任何生产代码读它，
+        // 就是"文件存在被当成已接通"。对账行必须真的出现在报告里。
+        val rep = BaselineRegistry.coverageReport()
+        val line = rep.firstOrNull { it.contains("上游清单") }
+        assertTrue("报告里没有上游清单对账行：$rep", line != null)
+        assertTrue("对账行要点名出处仓库", line!!.contains(GhostLockKernelCatalog.SOURCE_REPO))
+        // 对账结果必须是**零差异** —— 两个来源不同的列表必须完全一致
+        assertTrue("上游清单与我方登记档位对不上：$line", !line.contains("⚠️"))
     }
 
     @Test

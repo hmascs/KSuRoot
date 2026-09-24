@@ -65,6 +65,17 @@ data class BaselineEntry(
 
     /** 补充说明（例如"厂商私有字段不可跨厂商照搬"）。 */
     val notes: List<String> = emptyList(),
+
+    /**
+     * **beta 标记** —— 这一档还没有在真机上验证过。
+     *
+     * 存在的理由：蓝厂方案的若干档是**由通用方案的偏移派生**出来的
+     * （内核偏移本身与厂商无关，厂商差异只在 vr.ko 那一层），
+     * 派生出来的组合**没有在任何蓝厂设备上跑过**。
+     * 不标出来就等于谎报验证状态 —— 那正是本工程一直在防的假象。
+     * 界面上必须与已实测的档位区分显示。
+     */
+    val beta: Boolean = false,
 ) {
     /** 兼容旧字段名：整体来源标注取 [OffsetSet] 的状态标签。 */
     val provenance: String get() = offsets.status.label
@@ -129,15 +140,25 @@ sealed class BaselineLookup {
 object BaselineRegistry {
 
     /**
-     * **产品口径上声明支持**的内核系列（2026-09-12 定的）。
+     * **产品口径上声明支持**的内核系列。
      *
      * ```
-     *   主线  6.6 / 6.12        —— 「通用方案」与「vivo / iQOO 方案」**两个都要覆盖**
+     *   主线  6.1 / 6.6 / 6.12  —— 「通用方案」与「vivo / iQOO 方案」**两个都要覆盖**
      *   测试  5.x               —— 仅 beta，UI 必须标注「测试」
-     *
-     * [2026-09-12 口径变更] 6.1 从主线移除（用户指定只支持 6.6 / 6.12）。
-     * 6.1 既不是主线也不走 5.x 的 beta 开关 —— 构建前会被直接拒绝。
      * ```
+     *
+     * ### 6.1 的两次口径变更（留档，别再改回去）
+     *
+     * - **[2026-09-12] 从主线移除** —— 当时的理由：6.1 是 flat 形态
+     *   （88 字节 / task@0x30），与 6.6/6.12 的 nested（112 字节 / task@0x50）不是一套，
+     *   硬按主线偏移构建会打到错误的结构体字段上。**这个理由本身是对的。**
+     * - **[2026-09-25] 重新加入主线** —— 因为**我们为 6.1 编出了专属基线**
+     *   （`libbaseline_6_1.so`，结构体偏移取 6_1 族），
+     *   并且基线库已改成**按结构体族选择**（见 [BaselineLibraries]）。
+     *   也就是说：当初拒绝的理由（拿 6.6 的偏移硬打 6.1）现在**不再成立**。
+     *
+     * ⚠️ 这两条要一起读：**6.1 能进主线的唯一前提是"它有自己的族基线"**。
+     * 若哪天那份基线被拿掉，6.1 必须同时退回拒绝 —— 否则就真的会拿 6.6 的偏移去打 6.1。
      *
      * ⚠️ **这是「支持」而不是「已登记」**，两者必须分开看：
      * - 「支持」= 产品承诺覆盖这些内核，缺基线时要**明确报缺并给获取途径**；
@@ -147,7 +168,16 @@ object BaselineRegistry {
      * 那正是本工程一直在防的那种假象。所以本表只用来生成提示文案与覆盖率报告，
      * **绝不**参与匹配判定（匹配只看 [entries]）。
      */
-    val MAINLINE_SERIES: List<String> = listOf("6.6", "6.12")
+    /**
+     * 声明为主线、可正常构建的内核系列。
+     *
+     * [2026-09-25] 加入 **`6.1`** —— 此前它被排除在外，理由是"6.1 是 flat 形态
+     * （88 字节 / task@0x30），与 6.6/6.12 的 nested 不是一套"。
+     * 那个理由本身没错，**但结论已经过时**：我们已经为 6.1 编出了**专属基线**
+     * （`libbaseline_6_1.so`，结构体偏移取 tokay target.h 的 6_1 族），
+     * 所以"拿 6.6 的偏移打 6.1"这个危险不再存在 —— 现在走的是 6.1 自己的族。
+     */
+    val MAINLINE_SERIES: List<String> = listOf("6.1", "6.6", "6.12")
 
     /** 声明为测试线、仅 beta 的内核系列。 */
     val TEST_SERIES: List<String> = listOf("5.10", "5.15")
@@ -195,6 +225,299 @@ object BaselineRegistry {
             ),
         ),
     )
+
+    /**
+     * ★ 结构体族 → 基线库文件名。
+     *
+     * ### 为什么必须按族选，而不是每个方案一个固定库
+     *
+     * `PayloadScheme` 原本硬编码一个库（通用→`libionstack.so`、蓝厂→`libbs.so`），
+     * 而那两份**都是 6.6 族**的。拿它去打 6.1 或 6.12 的内核时，
+     * **结构体偏移是错的** —— 而结构体偏移是**编译期烤死的，patch 改不了**。
+     *
+     * 后果比"符号对不上"更隐蔽：符号可以 patch 对，看起来一切正常，
+     * 实际写的却是错位置的字段。
+     *
+     * 所以基线库按**目标内核的结构体族**选：
+     * - 6.1  → `libbaseline_6_1.so`（自编，tokay target.h）
+     * - 6.6  → 沿用各方案原有的库（`libionstack.so` / `libbs.so`）
+     * - 6.12 → `libbaseline_6_12.so`（自编，GhostLock 6_12 + 荣耀 BTF）
+     */
+    object BaselineLibraries {
+        const val SIX_ONE = "libbaseline_6_1.so"
+        const val SIX_TWELVE = "libbaseline_6_12.so"
+
+        /** 6.1 / 6.12 用自编基线；6.6 沿用方案自带的那份（`libionstack.so` / `libbs.so`）。 */
+        fun forFamily(family: GhostLockKernelOffsets.StructFamily): String = when (family) {
+            GhostLockKernelOffsets.StructFamily.F6_1 -> SIX_ONE
+            GhostLockKernelOffsets.StructFamily.F6_12 -> SIX_TWELVE
+            GhostLockKernelOffsets.StructFamily.F6_6 -> "" // 交给调用方用方案原有的库
+        }
+
+        /** 从内核串推出结构体族。**认不出返回 null，不猜**。 */
+        fun familyOf(kernelRelease: String?): GhostLockKernelOffsets.StructFamily? {
+            val v = kernelRelease?.substringBefore('-') ?: return null
+            return when {
+                v.startsWith("6.1.") -> GhostLockKernelOffsets.StructFamily.F6_1
+                v.startsWith("6.6.") -> GhostLockKernelOffsets.StructFamily.F6_6
+                v.startsWith("6.12.") -> GhostLockKernelOffsets.StructFamily.F6_12
+                else -> null
+            }
+        }
+
+        /**
+         * 该用哪个库文件。
+         *
+         * @param schemeLibrary 方案原本的库（6.6 族时使用）。
+         * @return 库文件名；族认不出时**回落到方案原有的库**并保持原行为。
+         */
+        fun resolve(schemeLibrary: String, kernelRelease: String?): String {
+            val fam = familyOf(kernelRelease) ?: return schemeLibrary
+            val byFamily = forFamily(fam)
+            return byFamily.ifBlank { schemeLibrary }
+        }
+    }
+
+    /**
+     * ★ 6.1 族基线（自行编译）。
+     *
+     * ### 它解决什么
+     *
+     * 蓝厂与通用原本**只有 6.6 族**的基线 `.so`，而 6.1 族的 `task_struct` 布局不同
+     * （`pi_lock 0x924` / `cred 0x838`，且 `compact_waiter=1`）——
+     * 拿 6.6 的 `.so` 去打 6.1 的内核，**符号 patch 再多也救不回来**，
+     * 所以 6.1 那 15 档一直构建不出来。
+     *
+     * ### 数据来源（可核查）
+     *
+     * - **符号（25 键齐全）**：`ctnBobong32/CVE-2026-43499-so-build` 的
+     *   `src/targets/tokay-CP2A.260605.012/target.h`（`pi_lock=0x924`，6.1 族）
+     * - **载荷源码与构建方式**：`boxiaolanya2008/CVE-2026-43499-Neo11Plus`
+     *   的 `exploit/src/`（本项目主打方案的上游）
+     * - 用容器内 NDK r30 编出 `libbaseline_6_1.so`（135184 B）
+     *
+     * ### 可信度
+     *
+     * `beta = true`：编译产物合法（ELF/init_array 已验证），但**未在真机上跑过**。
+     */
+    val BASELINE_6_1: BaselineProfile = BaselineProfile(
+        id = "baseline-6-1-tokay",
+        variantLabel = "tokay-CP2A.260605.012",
+        kernelVersion = "6.1",
+        imageBase = 0xffffffc008000000uL.toLong(),
+        abi = com.kernelpack.profile.AbiProfile(
+            id = "abi-6-1-tokay",
+            kernelSeries = "6.1",
+            memoryLayout = emptyMap(),
+            structOffsets = GhostLockKernelOffsets.structFields(
+                GhostLockKernelOffsets.StructFamily.F6_1,
+            ),
+        ),
+        // 符号集由 6.1 族的 target.h 提供（25 键齐全），此处留空 ——
+        // 真正的值在构建时由 boot.img 解析或从该 target.h 导入，
+        // 这里不写死任何数值，避免出现"看着有值、其实是别的内核的"。
+        symbolOffsets = emptyMap(),
+    )
+
+    /**
+     * ★ 6.12 族基线（自行编译）。
+     *
+     * ### 数据来源与可信度（逐项标注，不混着说）
+     *
+     * | 部分 | 来源 | 可信度 |
+     * |---|---|---|
+     * | **结构体偏移** | GhostLock `STRUCT_OFFSETS_6_12` **＋** 荣耀 6.12.38 的 BTF 实测 `offsets.json` | 两者**逐字段一致**（15 项 0 差异）→ 可信 |
+     * | **符号** | 荣耀 6.12.38 实测 `offsets.json`（8 个） | `CROSS_REFERENCE` —— 那是**别的机型**，不是我方目标机 |
+     * | 载荷源码与构建 | `boxiaolanya2008/CVE-2026-43499-Neo11Plus` | 本项目主打方案的上游 |
+     *
+     * ### 符号为什么可以是 CROSS_REFERENCE
+     *
+     * 基线 `.so` 里的符号值**在构建时会被 boot.img 解析出的新值逐项改写**；
+     * 真正决定"这份 .so 能不能用于某内核"的是**结构体偏移**（编译期烤死、patch 改不了）。
+     * 所以结构体可信、符号待改写，这个组合是成立的 ——
+     * 且 [com.kernelpack.SymbolAlignment] 闸门保证：改写不齐就**阻断**，不会静默留旧值。
+     */
+    val BASELINE_6_12: BaselineProfile = BaselineProfile(
+        id = "baseline-6-12-honor",
+        variantLabel = "honor-ylp-w00-6.12.38",
+        kernelVersion = "6.12",
+        imageBase = 0xffffffc080000000uL.toLong(),
+        abi = com.kernelpack.profile.AbiProfile(
+            id = "abi-6-12-honor",
+            kernelSeries = "6.12",
+            memoryLayout = emptyMap(),
+            structOffsets = GhostLockKernelOffsets.structFields(
+                GhostLockKernelOffsets.StructFamily.F6_12,
+            ),
+        ),
+        symbolOffsets = emptyMap(),
+    )
+
+    /**
+     * ★ 上游（GhostLock）内核档：把 `src/kernels/<release>/offsets.h` 的**真实偏移**
+     * 登记成通用方案的适配档。
+     *
+     * ### 数据是真的，可信度是 UPSTREAM
+     *
+     * 每档 9 个符号地址 + 归属的结构体族，逐条抓自上游源码（见 [GhostLockKernelOffsets]）。
+     * 所以它们**不是空壳** —— 有可用的偏移表。
+     * 但**不是我方实测**，因此：
+     * - 偏移标注一律用 [SourceTier.UPSTREAM_TARGET_H]；
+     * - 整档 `beta = true`；
+     * - [kernelSeries] 用**小版本**（`6.6.118`）而不是大系列（`6.6`），
+     *   否则 50 档会撞成同一个路由键，`profileIdFor` 只能返回一条。
+     */
+    private val upstreamEntries: List<BaselineEntry> =
+        GhostLockKernelOffsets.KERNELS.map { k ->
+            val minor = k.release.substringBefore('-')
+            val profile = BaselineProfile(
+                id = "up-" + k.release.replace(Regex("[^A-Za-z0-9]+"), "-").trim('-'),
+                variantLabel = k.release,
+                kernelVersion = k.release,
+                imageBase = 0xffffffc080000000uL.toLong(),
+                abi = com.kernelpack.profile.AbiProfile(
+                    id = "up-abi-" + k.release.replace(Regex("[^A-Za-z0-9]+"), "-").trim('-'),
+                    // ⚠️ 这里**必须**是两段式大系列（`6.6`），不能是 `k.release` 的小版本（`6.6.118`）。
+                    //
+                    // [2026-09-25 修 · 与"两张表"同源的第二种裂缝]
+                    // `BuildGate.evaluate` 拿 `abi.kernelSeries` 去比 `seriesOf(kernelRelease)`，
+                    // 而后者**只取两段**（`6.6.118-android15-…` → `6.6`）。
+                    // 原来这里填的是三段的小版本，于是**每一条上游档都会被判成 ABI 冲突**：
+                    //   「基线 ABI 档位是 GKI 6.6.118，而 boot.img 是 6.6」→ 构建被拒。
+                    // 50 档登记得再全，也一档都构建不出来 —— 而且报的还是"ABI 冲突"，
+                    // 让人往"库选错了"的方向查，与真正的原因（两套词汇）完全不搭边。
+                    //
+                    // 路由键是 [BaselineEntry.kernelSeries]（保留三段小版本，三级路由要用），
+                    // ABI 比较键是这里（两段大系列）—— 两者**同名不同义**，所以两边都要写清楚。
+                    kernelSeries = gkiSeriesOf(k.release),
+                    memoryLayout = emptyMap(),
+                    // 结构体偏移取它归属的那一族 —— 三族互不相同，这正是不能按版本外推的证据
+                    structOffsets = GhostLockKernelOffsets.structFields(k.family),
+                ),
+                // ★ 关键：符号集 = **基线 .so 的 25 个键** 打底，上游那 9 个**覆盖**上去。
+                //
+                // 为什么不能只放上游那 9 个：打补丁只能改写**基线 .so 里本来就有的字面量**。
+                // 若 symbolOffsets 只有 9 个键，闸门会算出"基线里没有的键有 16 个" → 永远拦住，
+                // 于是这 50 档登记得再全也构建不出来。
+                //
+                // 正确语义是：
+                //   - 25 个键的存在性来自基线 .so（决定**能改哪些**）；
+                //   - 其中 9 个的**目标值**来自上游（对这个内核是对的）；
+                //   - 其余 16 个待构建时从 boot.img 提取补齐，补不齐就被闸门拦住。
+                //
+                // `SymbolKeyMapping` 在这里第一次真正接进流程 —— 它负责把上游的
+                // `off_init_task` 这套词汇换成我方的 `INIT_TASK` 这套。
+                symbolOffsets = upstreamSymbolOverlay(k),
+            )
+            BaselineEntry(
+                profile = profile,
+                scheme = BaselineScheme.UNIVERSAL,
+                device = "GKI",
+                firmware = k.release,
+                kernelSeries = minor,
+                gkiBranch = Regex("-android(\\d+-\\d+)-").find(k.release)?.groupValues?.get(1),
+                source = "YuKongA/ghostlock-app · src/kernels/${k.release}/offsets.h",
+                offsets = upstreamOffsetSet(profile),
+                beta = true,
+                notes = listOf(
+                    "上游清单档：偏移取自 GhostLock 源码，**我方未实测**。",
+                    "结构体族：" + k.family.name + "（三族布局互不相同，不可按版本外推）。",
+                ),
+            )
+        }
+
+    /**
+     * 把上游 9 个符号**覆盖**到基线 .so 的 25 个键上。
+     *
+     * 覆盖不到的上游键（`SymbolKeyMapping` 里判为"我方用不上"的）会被忽略 ——
+     * 它们属于上游自己的 slide/rt_mutex 路线，我方这条 ashmem 路线不需要。
+     */
+    private fun upstreamSymbolOverlay(k: GhostLockKernelOffsets.KernelOffsets): Map<String, Long> {
+        val base = BaselineProfiles.IONSTACK_P10.symbolOffsets
+        // 上游键 → 我方键（一对多），再取其值
+        val overlay = LinkedHashMap<String, Long>()
+        for ((upstreamKey, value) in k.symbols) {
+            val ours = com.kernelpack.offsets.SymbolKeyMapping.DIRECT[upstreamKey] ?: continue
+            for (ourKey in ours) {
+                // 只覆盖基线里真有的键：基线没有的字面量，改了也没处写
+                if (base.containsKey(ourKey)) overlay[ourKey] = value
+            }
+        }
+        return base + overlay
+    }
+
+    /** 上游档的偏移标注：逐条标 [SourceTier.UPSTREAM_TARGET_H]，与实测档区分开。 */
+    private fun upstreamOffsetSet(profile: BaselineProfile): OffsetSet {
+        val anchor = profile.kernelVersion
+        val where = "YuKongA/ghostlock-app · src/kernels/$anchor/offsets.h"
+        val notes = profile.symbolOffsets.keys.map { key ->
+            OffsetNote(
+                key = key,
+                tier = SourceTier.UPSTREAM_TARGET_H,
+                measuredOn = anchor,
+                source = where,
+                note = "上游源码登记值；我方未在真机上验证。",
+                anchor = anchor,
+            )
+        }
+        return OffsetSet(notes)
+    }
+
+    /**
+     * ★ 蓝厂衍生档：把**通用方案的每一档内核适配**都挂上蓝厂独有的 vr.ko 反 root 绕过。
+     *
+     * ### 为什么可以这样派生
+     *
+     * 通用方案与本方案共用同一套**内核偏移** —— `rt_mutex_waiter` / `task_struct` /
+     * `selinux_state` 这些都是内核层的东西，与厂商无关；
+     * 厂商差异只体现在**绕过层**（vivo 多了 `vr.ko` 的 per-task 标记）。
+     * 所以「通用偏移 + 蓝厂绕过」在架构上是成立的组合，而不是硬凑。
+     *
+     * ### 为什么全部标 beta
+     *
+     * 因为**没有一条在蓝厂真机上跑过**。偏移是从通用档继承的、绕过是从上游源码读来的，
+     * 两者各自有依据，但**这个组合没有实测**。标 beta 是如实呈现验证状态。
+     *
+     * ### 派生规则
+     *
+     * 逐条复制通用方案条目，只改三处：方案归属、id 后缀（避免与通用档撞 id）、beta 标记。
+     * **偏移一个字节都不动** —— 动了就不再是"通用方案的适配"了。
+     */
+    /** 全部条目：手写实测档 + 上游档（均属通用方案）。 */
+    val entriesWithUpstream: List<BaselineEntry> = entries + upstreamEntries
+
+    private val vivoDerivedEntries: List<BaselineEntry> =
+        entriesWithUpstream.filter { it.scheme == BaselineScheme.UNIVERSAL }.map { universal ->
+            universal.copy(
+                profile = universal.profile.copy(id = universal.profile.id + "-vivo"),
+                scheme = BaselineScheme.VIVO,
+                beta = true,
+                notes = universal.notes + listOf(
+                    "蓝厂衍生档：内核偏移沿用通用方案，额外挂 vr.ko 反 root 绕过。",
+                    "beta：该组合未在蓝厂真机上验证过，偏移继承自通用档。",
+                ),
+            )
+        }
+
+    /**
+     * **匹配判定唯一依据** —— 手写条目 + 蓝厂衍生档。
+     *
+     * [MAINLINE_SERIES] 只用于生成文案与覆盖率报告，不参与匹配（见其文档）。
+     */
+    val allEntries: List<BaselineEntry> = entriesWithUpstream + vivoDerivedEntries
+
+    /** 一个方案下已登记的（含派生）内核系列。 */
+    fun seriesFor(scheme: BaselineScheme): List<String> =
+        allEntries.filter { it.scheme == scheme }.map { it.kernelSeries }.distinct().sorted()
+
+    /**
+     * 该「方案 × 系列」**实际生效**的那一档是不是 beta（未实测）。
+     *
+     * 注意它跟随 [entryFor] 的取舍 —— 已有实测档时返回 false，
+     * 而不是"存在任一 beta 档就返回 true"。否则界面会对一台有实测档的机器显示 beta 提示。
+     */
+    fun isBeta(scheme: BaselineScheme, kernelSeries: String): Boolean =
+        entryFor(scheme, kernelSeries)?.beta == true
 
     /**
      * 6.6 两条基线的偏移标注。
@@ -255,9 +578,11 @@ object BaselineRegistry {
     // ------------------------------------------------------------------ 查询
 
     fun forScheme(scheme: BaselineScheme): List<BaselineEntry> =
-        entries.filter { it.scheme == scheme }.ifEmpty { entries }
+        allEntries.filter { it.scheme == scheme }.ifEmpty { allEntries }
 
-    fun byId(id: String): BaselineEntry? = entries.firstOrNull { it.profile.id == id }
+    // 必须查 allEntries：蓝厂衍生档的 id 带 `-vivo` 后缀、只存在于派生表里，
+    // 查旧表会出现"profileIdFor 返回了 id，byId 却取不到条目"的裂缝。
+    fun byId(id: String): BaselineEntry? = allEntries.firstOrNull { it.profile.id == id }
 
     /**
      * 按 **(方案, 内核系列)** 取应该用哪份载荷档位的 id。
@@ -270,8 +595,74 @@ object BaselineRegistry {
      * 好处：以后补 6.12 只需往 [entries] 加一条，**不用改任何代码路径**。
      */
     fun profileIdFor(scheme: BaselineScheme, kernelSeries: String): String? =
-        entries.firstOrNull { it.scheme == scheme && it.kernelSeries == kernelSeries }
-            ?.profile?.id
+        entryFor(scheme, kernelSeries)?.profile?.id
+
+    /**
+     * **优先按完整内核串路由，再退回大系列。**
+     *
+     * ### 为什么必须有这个重载
+     *
+     * 上游那 50 档是按**小版本**登记的（`6.6.118`），而 `KernelSchemeSelector`
+     * 给出的是**大系列**（`6.6`）。只按大系列查的话，这 50 档**一次都不会被选中** ——
+     * 登记得再全也是死数据。
+     *
+     * 所以路由顺序是：
+     * 1. **完整内核串精确命中**（`6.6.118-android15-8-g2e6b9c3812c5-ab15114928-4k`）；
+     * 2. 退回**小版本**（`6.6.118`）；
+     * 3. 再退回**大系列**（`6.6`）—— 手写实测档走的是这一层。
+     *
+     * 三级都要求**精确相等**，不做前缀推断：认不出来就是没有，
+     * 绝不能拿邻近版本顶替（那是本工程最防的错）。
+     */
+    fun profileIdFor(
+        scheme: BaselineScheme,
+        kernelSeries: String,
+        kernelRelease: String?,
+    ): String? {
+        if (!kernelRelease.isNullOrBlank()) {
+            // 1) 完整串
+            allEntries.firstOrNull { it.scheme == scheme && it.firmware == kernelRelease }
+                ?.let { return it.profile.id }
+            // 2) 小版本
+            val minor = kernelRelease.substringBefore('-')
+            entryFor(scheme, minor)?.let { return it.profile.id }
+        }
+        // 3) 大系列
+        return profileIdFor(scheme, kernelSeries)
+    }
+
+    /** 该组合是不是 beta（含三级路由）。 */
+    fun isBetaFor(
+        scheme: BaselineScheme,
+        kernelSeries: String,
+        kernelRelease: String?,
+    ): Boolean {
+        if (!kernelRelease.isNullOrBlank()) {
+            allEntries.firstOrNull { it.scheme == scheme && it.firmware == kernelRelease }
+                ?.let { return it.beta }
+            entryFor(scheme, kernelRelease.substringBefore('-'))?.let { return it.beta }
+        }
+        return isBeta(scheme, kernelSeries)
+    }
+
+    /**
+     * 某个「方案 × 内核系列」**实际生效**的那一条。
+     *
+     * ### 为什么需要它，而不是直接 firstOrNull
+     *
+     * 引入蓝厂衍生档之后，同一个 (方案, 系列) 会有**多条**：
+     * 例如蓝厂 6.6 既有手写实测的 `PD2520`，又有从通用方案派生的 beta 档。
+     * `firstOrNull` 的语义会变成"看列表顺序"，而列表顺序是偶然的 ——
+     * 那就会出现"实测档明明在，却选中了 beta 档"这种说不通的结果。
+     *
+     * 所以这里的规则是显式的：**已实测优先；beta 档只用来补空缺**。
+     * 排序稳定（同优先级按 id），不依赖声明顺序。
+     */
+    fun entryFor(scheme: BaselineScheme, kernelSeries: String): BaselineEntry? =
+        allEntries
+            .filter { it.scheme == scheme && it.kernelSeries == kernelSeries }
+            .sortedWith(compareBy({ if (it.beta) 1 else 0 }, { it.profile.id }))
+            .firstOrNull()
 
     /**
      * 按内容识别基线：先 sha256 精确匹配，再退回 `BUILD_VARIANT_LABEL` 字符串匹配。
@@ -281,9 +672,9 @@ object BaselineRegistry {
      */
     fun findByBytes(baseLibrary: ByteArray): BaselineEntry? {
         val digest = BaselineProfiles.sha256Hex(baseLibrary)
-        entries.firstOrNull { it.profile.sha256?.equals(digest, ignoreCase = true) == true }?.let { return it }
+        allEntries.firstOrNull { it.profile.sha256?.equals(digest, ignoreCase = true) == true }?.let { return it }
         val text = String(baseLibrary, Charsets.ISO_8859_1)
-        return entries.firstOrNull { e ->
+        return allEntries.firstOrNull { e ->
             val label = e.profile.variantLabel
             label.isNotBlank() && text.contains(label)
         }
@@ -323,7 +714,14 @@ object BaselineRegistry {
                 howTo = listOf("请确认这个 boot.img 确实来自目标设备。"),
             )
 
-        val sameSeries = entries.filter { it.kernelSeries == series && it.scheme == scheme }
+        // [2026-09-25 修] 原来这里查的是 `entries` —— 只有那 2 条手写档，
+        // 于是上游 50 档 + 蓝厂衍生 51 档在"基线建议/报缺"这条路上**等于不存在**：
+        // 用户明明有 6.1.145 的登记档，界面却说「没有 6.1 的通用方案基线」。
+        // 现在查 allEntries，并且**按两段式大系列比较** —— 因为上游档的
+        // kernelSeries 是三段小版本（`6.1.145`），直接 `== "6.1"` 一条都对不上。
+        val sameSeries = allEntries.filter {
+            it.scheme == scheme && (seriesOf(it.kernelSeries) ?: it.kernelSeries) == series
+        }
 
         // 第 1 级：分支也对上
         if (gkiBranch != null) {
@@ -357,10 +755,16 @@ object BaselineRegistry {
         val howTo = ArrayList<String>()
         howTo.add("需要的是一份**为该内核（$kernelRelease）编译的载荷 .so**，" +
             "或上游仓库里对应机型的 target.h。")
-        val sameScheme = entries.filter { it.scheme == scheme }
+        // 同一处修正：报缺时列出的是**注册表实际覆盖面**，不是那 2 条手写档。
+        // 按大系列归并，否则 101 条会糊满整个日志。
+        val sameScheme = allEntries
+            .filter { it.scheme == scheme }
+            .map { seriesOf(it.kernelSeries) ?: it.kernelSeries }
+            .distinct()
+            .sorted()
         if (sameScheme.isNotEmpty()) {
-            howTo.add("现有 ${scheme.label} 基线只覆盖：" +
-                sameScheme.joinToString("、") { "${it.kernelSeries}（${it.quad()}）"} +
+            howTo.add("现有 ${scheme.label} 基线覆盖的大系列：" +
+                sameScheme.joinToString("、") +
                 " —— 内核系列不同，不可替代。")
         }
         // [支持 ≠ 已登记] 这两句话必须分开说，否则用户会以为"声明支持"就等于"能用"。
@@ -405,14 +809,43 @@ object BaselineRegistry {
         addAll(e.notes)
     }
 
+    /**
+     * 注册表里**实际有哪些档** —— 按 (方案 × 大系列) 汇总。
+     *
+     * 原来这里是 `entries.map { it.quad() }`，只列那 2 条手写档；
+     * 而上游 50 档 + 蓝厂 50 档衍生共 101 条**一条都不显示**，
+     * 于是"报缺"文案会在明明有档位时说"没有基线"。
+     * 现在汇总成几行，既不刷屏也不漏报。
+     */
     private fun availableLabels(): List<String> =
-        entries.map { "${it.quad()}·${it.scheme.label}·${it.offsets.status.label}" }
+        allEntries
+            .groupBy { it.scheme.label to (seriesOf(it.kernelSeries) ?: it.kernelSeries) }
+            .entries
+            .sortedWith(compareBy({ it.key.first }, { it.key.second }))
+            .map { (k, v) ->
+                "${k.first} × ${k.second}：${v.size} 档" +
+                    "（实测 ${v.count { !it.beta }} / beta ${v.count { it.beta }}）"
+            }
 
     // ------------------------------------------------------------------ 解析
 
     fun seriesOf(release: String): String? =
         Regex("^(\\d+)\\.(\\d+)").find(release.trim())
             ?.let { "${it.groupValues[1]}.${it.groupValues[2]}" }
+
+    /**
+     * 把任意形态的内核串压成**两段式大系列**（`6.6.118-android15-…` → `6.6`）。
+     *
+     * 与 [seriesOf] 的区别只有容错：解析不出来时**退回 `substringBefore('-')`**，
+     * 而不是返回 null。用在注册表初始化里 —— 那里需要的是"一定有个串可用"，
+     * 而"认不出"这件事由闸门去说，不该让注册表构造不出来。
+     *
+     * ⚠️ 之所以要这个函数：`abi.kernelSeries` 的语义是**闸门比较键**（两段），
+     * 而 `BaselineEntry.kernelSeries` 的语义是**路由键**（三段小版本）。
+     * 两者同名不同义 —— 混用就会让每一条上游档都被判成 ABI 冲突。
+     */
+    fun gkiSeriesOf(release: String): String =
+        seriesOf(release) ?: release.trim().substringBefore('-')
 
     /**
      * 从内核 release 串里取 GKI 分支。
@@ -440,28 +873,82 @@ object BaselineRegistry {
      * 是两句完全不同的话。把两者并排打出来，缺哪一档一眼可见。
      */
     fun coverageReport(): List<String> = buildList {
+        // [2026-09-25 修] 原来这里查的是 `entries`（只有 2 条手写档），
+        // 于是报告会说「6.12 · 通用方案：❌ 未登记」—— 而上游 6.12.23/30/38 共 12 档
+        // 明明登记在 [upstreamEntries] 里。**报告说没登记，路由却能选到** ——
+        // 又是"两张表"：一处修了，另一处还在骗人。
+        // 现在统一查 allEntries，并把**大系列**作为归并口径（上游档的 kernelSeries 是三段小版本）。
         for (scheme in listOf(BaselineScheme.UNIVERSAL, BaselineScheme.VIVO)) {
-            val registered = entries.filter { it.scheme == scheme }.map { it.kernelSeries }.toSet()
             for (series in MAINLINE_SERIES) {
-                val mark = if (series in registered) "✅ 已登记" else "❌ 未登记（会明确报缺）"
+                val hits = allEntries.filter {
+                    it.scheme == scheme && gkiSeriesOf(it.kernelSeries) == series
+                }
+                val mark = if (hits.isEmpty()) {
+                    "❌ 未登记（会明确报缺）"
+                } else {
+                    val measured = hits.count { !it.beta }
+                    "✅ 已登记 ${hits.size} 档（实测 $measured / beta ${hits.size - measured}）"
+                }
                 add("$series · ${scheme.label}：$mark")
             }
         }
-        val testRegistered = entries.filter { it.kernelSeries in TEST_SERIES }
+        val testRegistered = allEntries.filter { gkiSeriesOf(it.kernelSeries) in TEST_SERIES }
         add(
             "测试线 ${TEST_SERIES.joinToString(" / ")}：已登记 ${testRegistered.size} 档" +
                 "（仅 beta，设置页已标「测试」）"
         )
+        addAll(upstreamCatalogReport())
+    }
+
+    /**
+     * ★ 上游内核清单 ↔ 我方登记档位**对账**。
+     *
+     * 这是 [GhostLockKernelCatalog] 的**唯一生产消费者** —— 在此之前它是个孤儿：
+     * 50 条内核串躺在那里，没有任何代码读它，"文件存在"被当成了"已接通"。
+     *
+     * 它有真事可做：上游清单是**从上游源码树枚举**出来的，
+     * 而我方 50 档偏移是**逐条抄录**进 [GhostLockKernelOffsets] 的。
+     * 两条来源不同的路必须对上 —— 对不上就说明抄漏了或抄多了，
+     * 而那种错**不会自己暴露**：少一档只是"某台机器选不中"，
+     * 多一档则是"登记了一个上游根本不支持的内核"，两者都很隐蔽。
+     */
+    private fun upstreamCatalogReport(): List<String> = buildList {
+        val declared = GhostLockKernelCatalog.VERSIONS
+        val registered = upstreamEntries.map { it.firmware }.toSet()
+        val missing = declared.filter { it !in registered }
+        val extra = registered.filter { it !in declared }
+        add(
+            "上游清单（${GhostLockKernelCatalog.SOURCE_REPO} · ${GhostLockKernelCatalog.SOURCE_PATH}）：" +
+                "声明 ${declared.size} 档，我方已登记 ${declared.size - missing.size} 档"
+        )
+        if (missing.isNotEmpty()) {
+            add("    ⚠️ 上游有、我方未登记 ${missing.size} 档：$missing")
+        }
+        if (extra.isNotEmpty()) {
+            add("    ⚠️ 我方登记了、上游清单里却没有 ${extra.size} 档：$extra")
+        }
+        add("    上游覆盖的小版本：${GhostLockKernelCatalog.MINOR_VERSIONS.joinToString("、")}")
     }
 
     /** 可行性能实测出来的基线占比 —— 缺基线时最该看的一个数。 */
     fun feasibilityCoverage(): String {
-        val withLayout = entries.count { it.feasibility?.layout?.known == true }
-        val measured = entries.count { it.feasibility?.measuredWord != null }
-        return "布局已知 $withLayout/${entries.size}，落点已实测 $measured/${entries.size}"
+        // 同处修正：覆盖率的**分母**必须是注册表全部档位，而不是那 2 条手写档 ——
+        // 拿 2 当分母会算出"0/2 已实测"，看起来像什么都没做，其实是 101 档里的 2 档。
+        val withLayout = allEntries.count { it.feasibility?.layout?.known == true }
+        val measured = allEntries.count { it.feasibility?.measuredWord != null }
+        return "布局已知 $withLayout/${allEntries.size}，落点已实测 $measured/${allEntries.size}"
     }
 
-    fun summary(): String = entries.joinToString("；") {
-        "${it.quad()}（${it.scheme.label}·${it.offsets.status.label}）"
-    }
+    /**
+     * 一句话概览（方案 × 大系列 各有多少档）。
+     *
+     * 原来它是 `entries.joinToString` —— 101 档里只列 2 档，
+     * 而且真要列全了就是 101 段文字糊满一行。现在按 (方案, 大系列) 归并。
+     */
+    fun summary(): String =
+        allEntries
+            .groupBy { "${it.scheme.label} × ${gkiSeriesOf(it.kernelSeries)}" }
+            .entries
+            .sortedBy { it.key }
+            .joinToString("；") { (k, v) -> "$k ${v.size} 档" }
 }

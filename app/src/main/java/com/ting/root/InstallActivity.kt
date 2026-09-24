@@ -196,8 +196,8 @@ private fun InstallScreen(
                 } else {
                     installState.message
                 },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
 
             // 状态卡与日志卡只依赖各自的数据：把 installState 拆开传进去，
@@ -344,13 +344,13 @@ private fun InstallerStatusCard(
                 ) {
                     Text(
                         text = message,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MiuixTheme.textStyles.title2,
                     )
                     // [2026-09-24] 翻译引擎已移除 → 状态区统一显示阶段详情。
                     val detail = installPhaseDetail(phase)
                     Text(
                         text = detail,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MiuixTheme.textStyles.body2,
                         color = contentColor.copy(alpha = 0.78f),
                     )
                 }
@@ -409,7 +409,7 @@ private fun InstallerLog(
             ) {
                 Text(
                     text = stringResource(R.string.install_live_progress),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MiuixTheme.textStyles.title2,
                     modifier = Modifier.weight(1f),
                 )
                 // 一键复制：出问题时直接把**原始**日志贴到群里/issue 里
@@ -446,7 +446,7 @@ private fun InstallerLog(
                 // 因此这里不再固定 Monospace，交给主题的正文字体。
                 fontSize = 13.sp,
                 lineHeight = 20.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
         }
     }

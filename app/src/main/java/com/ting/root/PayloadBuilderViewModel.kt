@@ -305,7 +305,13 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
                 // ── 按 (方案, 内核系列) 路由到具体载荷档位 ──
                 // 这是"两个方案 × 两个主线系列"的唯一路由点。取不到就是**真的没有**
                 // 该组合的偏移产物 —— 必须在这里停下并说清楚，绝不能回退到别的系列。
-                val profileId = BaselineRegistry.profileIdFor(scheme.baselineScheme, selected.series)
+                // 三级路由：**先按完整内核串**，再小版本，最后退回大系列。
+                // 不传 release 的话，按小版本登记的上游 50 档永远选不中。
+                val profileId = BaselineRegistry.profileIdFor(
+                    scheme.baselineScheme,
+                    selected.series,
+                    selected.release,
+                )
                 if (profileId == null) {
                     val msg = "还没有为「${scheme.baselineScheme.label} × 内核 ${selected.series}」" +
                         "登记偏移产物，本次不打包（不会用别的系列顶替）"
@@ -321,7 +327,9 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
                     return@launch
                 }
 
-                val baseLibrary = withContext(Dispatchers.IO) { readBaseLibrary(app, scheme) }
+                val baseLibrary = withContext(Dispatchers.IO) {
+                    readBaseLibrary(app, scheme, selected.release)
+                }
                 publish(
                     app.getString(
                         R.string.builder_loaded,
@@ -332,7 +340,7 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
                 val baseSha = withContext(Dispatchers.Default) { sha256Hex(baseLibrary) }
                 mutableState.value = mutableState.value.copy(
                     scheme = scheme,
-                    baseLibraryName = scheme.library,
+                    baseLibraryName = lastBaseLibraryName ?: scheme.library,
                     baseLibrarySize = baseLibrary.size.toLong(),
                     baseLibrarySha256 = baseSha,
                 )
@@ -344,9 +352,18 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
                         PackRequest(
                             bootImage = bootBytes,
                             baseLibrary = baseLibrary,
-                            // 显式指定基线：内置两份载荷的 sha256 都在基线表里，
-                            // 但显式传入更不容易被"兜底选第一个"的旧逻辑带偏。
-                            baseline = BaselineProfiles.byId(profileId),
+                            // 显式指定基线。
+                            //
+                            // [2026-09-25 修] 原来查的是 [BaselineProfiles.byId] ——
+                            // 那个表**只有 2 份手写档**（PD2520 / IONSTACK_P10，都是 6.6）。
+                            // 上游那 50 档的 profile 是在 [BaselineRegistry] 里**就地构造**的，
+                            // 没登记进去，于是 byId 查不到 → 上层兜底回落到 PD2520（6.6）
+                            // → 拿 6.6 的 ABI 去对 6.1 的 boot.img → **误报"基线 ABI 冲突"**，
+                            // 用户明明有 6.1 基线却被告知不匹配。
+                            //
+                            // [BaselineRegistry.byId] 搜的是 allEntries（手写 + 上游 + 蓝厂派生），
+                            // 与三级路由用的是同一张表 —— 路由指向哪一档，这里就取到哪一档。
+                            baseline = BaselineRegistry.byId(profileId)?.profile,
                             // 设置页的"强制指定内核系列"与"忽略冲突"：默认 AUTO + 不放行，
                             // 也就是**默认按实测走、冲突即拒绝**。
                             seriesOverride = AppPreferences.kernelSeriesOverride(app),
@@ -518,9 +535,22 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
         mutableState.value = mutableState.value.copy(blockedKind = null, error = null)
     }
 
-    private fun readBaseLibrary(context: Context, scheme: PayloadScheme): ByteArray {
-        val file = File(context.applicationInfo.nativeLibraryDir, scheme.library)
+    /** 上一次实际读到的基线库名（可能因结构体族而与 scheme.library 不同）。 */
+    private var lastBaseLibraryName: String? = null
+
+    private fun readBaseLibrary(
+        context: Context,
+        scheme: PayloadScheme,
+        kernelRelease: String? = null,
+    ): ByteArray {
+        // 按**结构体族**选库：6.1/6.12 用自编基线，6.6 用方案原有的那份。
+        // 不做这一步的话，6.1/6.12 会拿到 6.6 族的 .so —— 结构体偏移是错的，
+        // 而那是编译期烤死的、patch 改不回来。
+        val libName = com.kernelpack.profile.BaselineRegistry.BaselineLibraries
+            .resolve(scheme.library, kernelRelease)
+        val file = File(context.applicationInfo.nativeLibraryDir, libName)
         require(file.exists()) { context.getString(R.string.error_bundled_missing) }
+        lastBaseLibraryName = libName
         return file.readBytes()
     }
 

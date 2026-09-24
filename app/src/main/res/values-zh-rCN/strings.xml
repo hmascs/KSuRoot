@@ -2,6 +2,22 @@
 <resources>
     <string name="app_name">KSuRoot</string><string name="nav_overview">主页</string><string name="nav_history">运行记录</string><string name="nav_settings">设置</string>
     <string name="install_confirm_title">安装 KernelSU？</string><string name="install_confirm_body">应用将验证支持配置，然后从 GitHub 下载并运行 exploit 与 KernelSU payload。</string><string name="install_confirm_body_bundled">应用将直接运行内置动态库（libbs.so），无需联网下载。</string><string name="install_confirm_body_custom">应用将直接运行你导入的自定义动态库（%1$s），无需联网下载。</string>
+    <string name="match_dialog_title">自动匹配结果</string>
+    <string name="match_device_line">识别到的设备：%1$s</string>
+    <string name="match_device_kernel">设备内核：%1$s</string>
+    <string name="match_payload_line">将使用的载荷：%1$s</string>
+    <string name="match_payload_kernel">载荷内核：%1$s</string>
+    <string name="match_payload_kernel_unknown">载荷内核：未知（需手动选用）</string>
+    <string name="match_kernel_agree">内核版本一致</string>
+    <string name="match_kernel_differ">内核版本不一致 —— 该载荷可能无法生效</string>
+    <string name="match_tier_exact">精确匹配</string>
+    <string name="match_tier_same_kernel">同内核版本，构建不同</string>
+    <string name="match_tier_similar">仅同厂商相似机型</string>
+    <string name="match_none">内置载荷中没有匹配该设备的条目</string>
+    <string name="match_none_hint">请手动导入载荷，或改用自定义载荷。</string>
+    <string name="match_blocked_title">请先选取载荷</string>
+    <string name="match_blocked_hint">自动匹配没有为这台设备找到可用载荷。请在下面选一份，或先导入动态库再继续。</string>
+    <string name="match_dialog_hint">这是本次将要使用的载荷。继续前请确认内核版本。</string>
     <string name="action_confirm">确认</string><string name="action_cancel">取消</string><string name="action_close">关闭</string><string name="action_retry">重试</string><string name="action_done">完成</string><string name="action_back">返回</string>
     <string name="install_tap_manager">点击安装 KernelSU Manager</string><string name="install_tap_retry">点击重试</string><string name="install_tap_start">点击安装 KernelSU</string>
     <string name="device">设备</string><string name="firmware">固件</string><string name="system">系统</string><string name="system_abi">系统 ABI</string>
@@ -47,6 +63,25 @@
     <string name="about">关于</string>
     <string name="about_title">关于 KSUroot</string>
     <string name="about_description">关于 KSUroot</string>
+    <string name="donation">打赏支持</string>
+    <string name="donation_description">请作者喝杯咖啡</string>
+    <string name="donation_title">打赏支持</string>
+    <string name="donation_body">你的支持就是作者开发的最大动力</string>
+    <string name="donation_hint">微信扫码</string>
+    <string name="donation_thanks">感谢支持！</string>
+    <string name="brand_google">Google Pixel</string>
+    <string name="brand_samsung">三星 Galaxy</string>
+    <string name="brand_xiaomi">小米 / Redmi</string>
+    <string name="brand_vivo">vivo / iQOO</string>
+    <string name="brand_oppo">OPPO</string>
+    <string name="brand_realme">realme</string>
+    <string name="brand_oneplus">一加 OnePlus</string>
+    <string name="brand_honor">荣耀 HONOR</string>
+    <string name="brand_asus">华硕 ASUS</string>
+    <string name="brand_sharp">夏普 AQUOS</string>
+    <string name="brand_meizu">魅族 Meizu</string>
+    <string name="brand_other">其他 / 未识别机型</string>
+    <string name="brand_section_count">%1$d 款</string>
     <string name="about_body">KSuRoot 是一个在设备上直接完成 KernelSU 安装的工具：从你的 boot.img 里解析出 CVE-2026-43499（GhostLock）提权链需要的内核符号偏移，不需要电脑，也不需要 ADB。</string>
     <string name="history_payload">Payload: %1$s</string>
     <string name="export_log">导出日志</string>
@@ -64,10 +99,18 @@
     <string name="payload_detail_action">查看支持机型</string>
     <string name="payload_detail_bundled_title">内置提权载荷 · 覆盖机型</string>
     <string name="payload_detail_bundled_note">下列载荷全部随 APK 分发，在本机按机型与内核构建匹配。标注了多个内核版本的机型表示每个构建都有对应的一份。</string>
+    <string name="payload_search_hint">搜索机型或内核版本</string>
+    <string name="payload_search_summary">%1$d / %2$d 个机型</string>
+    <string name="payload_search_empty">没有匹配的机型</string>
+    <string name="payload_note_toggle">关于这份清单</string>
+    <string name="payload_variant_kernel_unknown">内核未知</string>
+    <string name="payload_variant_build">构建 %1$s</string>
     <string name="payload_detail_pick_hint">点一下载荷即可指定本次使用哪一份；全部不选表示仍按机型自动匹配。</string>
     <string name="payload_detail_selected">当前指定：%1$s</string>
     <string name="payload_detail_recommended">本机推荐</string>
     <string name="install_confirm_manual_payload">将使用载荷：%1$s（由你手动指定）</string>
+    <string name="install_pick_payload">本机可用载荷</string>
+    <string name="install_multi_hint">这台设备有多份可用载荷。如果当前这份不生效，可以换另外几份再试试。</string>
     <string name="log_manual_payload">手动指定载荷：%1$s（并非 %2$s 的自动匹配结果）</string>
     <string name="payload_detail_kernel_format">内核 %1$s</string>
     <string name="chip_snapdragon_8_elite">骁龙 8 至尊版</string>
@@ -100,6 +143,14 @@
     <string name="builder_section_result">构建结果</string>
     <string name="builder_section_output">产出</string>
     <string name="builder_boot_image">boot.img</string>
+    <string name="offsets_import">导入 offsets.json</string>
+    <string name="offsets_import_desc">载入 GhostLock / IonStack 产出的内核偏移文件</string>
+    <string name="offsets_dialog_title">offsets.json</string>
+    <string name="offsets_release">内核版本：%1$s</string>
+    <string name="offsets_counts">符号 %1$d 项 · 结构体字段 %2$d 项</string>
+    <string name="offsets_missing">缺失：符号 %1$d 项、结构体字段 %2$d 项</string>
+    <string name="offsets_unknown">保留了 %1$d 个不认识的键 —— 往返不会丢数据</string>
+    <string name="offsets_error">读不了这个文件：%1$s</string>
     <string name="builder_boot_none">尚未选择文件</string>
     <string name="builder_pick_boot">选择 boot.img</string>
     <string name="builder_boot_hint">请选择与本机内核版本一致的 boot.img（可从官方固件包里取，或从 /dev/block/by-name/boot 提取）。</string>
@@ -194,6 +245,7 @@
     <string name="language_russian" translatable="false">Русский</string>
     <string name="language_vietnamese" translatable="false">Tiếng Việt</string>
     <string name="payload_note_libbs">release v1.3.0，vivo/iQOO 专用分支，多一条 vr.ko 反 root 绕过</string>
+    <string name="payload_note_kernel_unknown">其中 %1$d 份载荷读不出内核版本 —— 只能手动选用，不会参与自动匹配</string>
     <string name="payload_note_rollback_6689">6.6.89 上游回归内置 libbs.so，此份为提权文件中的重打包版本，仅作回退</string>
     <string name="payload_note_share_sixmodels">与 vivo X200 等六款机型共用同一份二进制</string>
     <string name="payload_note_sixmodels_fallback">六款机型通用一份；同二进制已在 iQOO Z10 Turbo+ 6.6.57 下登记，此处保留为跨机型回退入口</string>

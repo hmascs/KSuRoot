@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
  * 顶部安全警告横幅。
@@ -59,25 +60,25 @@ fun SecurityWarningBanner(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.errorContainer,
-        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+        color = MiuixTheme.colorScheme.errorContainer,
+        contentColor = MiuixTheme.colorScheme.onErrorContainer,
         tonalElevation = 6.dp,
     ) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("⚠️", style = MaterialTheme.typography.titleMedium)
+                Text("⚠️", style = MiuixTheme.textStyles.title2)
                 Spacer(Modifier.width(8.dp))
                 // 原文案，逐字使用
                 Text(
                     text = SecurityIntegrity.WARNING_TEXT,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MiuixTheme.textStyles.body2,
                     fontWeight = FontWeight.Medium,
                 )
             }
             Spacer(Modifier.height(4.dp))
             Text(
                 text = failure.summary,
-                style = MaterialTheme.typography.bodySmall,
+                style = MiuixTheme.textStyles.footnote1,
             )
             Spacer(Modifier.height(4.dp))
             Row(
@@ -101,15 +102,15 @@ fun SecurityWarningBanner(
                     failure.issues.take(8).forEach { issue ->
                         Text(
                             text = "· ${issue.path}（${issue.role}）\n  ${issue.reason}",
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MiuixTheme.textStyles.footnote1,
                         )
                     }
                     if (failure.issues.size > 8) {
                         Text("…共 ${failure.issues.size} 项，完整记录见日志",
-                            style = MaterialTheme.typography.bodySmall)
+                            style = MiuixTheme.textStyles.footnote1)
                     }
                     Spacer(Modifier.height(8.dp))
-                    Text("日志：${failure.logPath}", style = MaterialTheme.typography.bodySmall)
+                    Text("日志：${failure.logPath}", style = MiuixTheme.textStyles.footnote1)
                 }
             },
             confirmButton = { TextButton(onClick = { showDetail = false }) { Text("知道了") } },
@@ -209,10 +210,10 @@ fun KernelSeriesSettingRow(
     onIgnoreConflictChange: (Boolean) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(16.dp)) {
-        Text("载荷构建：内核系列", style = MaterialTheme.typography.titleSmall)
+        Text("载荷构建：内核系列", style = MiuixTheme.textStyles.title4)
         Text(
             "决定用 5.x 还是 6.x 的布局规则构建载荷。默认按 boot.img 实测结果自动选择。",
-            style = MaterialTheme.typography.bodySmall,
+            style = MiuixTheme.textStyles.footnote1,
         )
         Spacer(Modifier.height(8.dp))
         KernelSeriesOption.entries.forEach { option ->
@@ -225,14 +226,14 @@ fun KernelSeriesSettingRow(
             Switch(checked = ignoreConflict, onCheckedChange = onIgnoreConflictChange)
             Spacer(Modifier.width(8.dp))
             Column {
-                Text("忽略冲突（高级）", style = MaterialTheme.typography.bodyMedium)
+                Text("忽略冲突（高级）", style = MiuixTheme.textStyles.body2)
                 Text(
                     "等价于宿主侧的 --i-know-what-i-am-doing：强制指定与实测冲突时仍然构建。",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MiuixTheme.textStyles.footnote1,
                 )
                 Text(
                     "打开后每次越过硬拦截都会记入日志，便于事后追溯。",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MiuixTheme.textStyles.footnote1,
                 )
             }
         }

@@ -300,6 +300,16 @@ object BaselineProfiles {
      *  1. sha256 精确匹配；
      *  2. 基础 .so 里内嵌的机型标签能对上；
      *  3. 兜底返回 [PD2520]。
+     *
+     * ⚠️ **[2026-09-25 起已从构建路径上撤下]** —— 不要再用它做通用查表。
+     *
+     * 这张表只有 2 条（都是 6.6），而注册表有 101 档（含上游 50 档、蓝厂派生 51 档）。
+     * 拿它查 6.1 / 6.12 的库，第 3 条兜底会返回 PD2520（6.6）→ 硬闸门报
+     * 「基线 ABI 档位是 GKI 6.6 而 boot.img 是 6.1」→ 用户明明有 6.1 基线却构建不了。
+     * 这就是 2026-09-25 那次实测事故的根因。
+     *
+     * 现在构建路径用的是 [BaselineRegistry.findByBytes]（搜 allEntries，只认能自证身份的匹配），
+     * 认不出就**如实报缺并停止打包**，不再兜底。本函数保留仅为兼容旧测试。
      */
     fun detect(baseLibrary: ByteArray, candidates: List<BaselineProfile> = ALL): BaselineProfile {
         val digest = sha256Hex(baseLibrary)
@@ -309,5 +319,11 @@ object BaselineProfiles {
         return candidates.first()
     }
 
+    /**
+     * 按 id 查这张**只有 2 条**的表。
+     *
+     * ⚠️ 同上：通用查表请用 [BaselineRegistry.byId]（搜 allEntries）。
+     * 这两个同名函数曾导致「路由指向 A 档、打包却取到 B 档」的裂缝。
+     */
     fun byId(id: String): BaselineProfile? = ALL.firstOrNull { it.id == id }
 }
