@@ -19,8 +19,8 @@ android {
         applicationId = "com.ting.root"
         minSdk = 33
         targetSdk = 36
-        versionCode = 302
-        versionName = "3.0.2"
+        versionCode = 311
+        versionName = "3.1.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
@@ -129,4 +129,23 @@ dependencies {
     androidTestImplementation("androidx.test:core-ktx:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
+}
+
+/**
+ * 把宿主环境变量 `KSU_TEST_BOOT_IMG` 透进单测 JVM。
+ *
+ * [为什么必须有这段] `Lz4Test` 的端到端用例读的是 `System.getenv("KSU_TEST_BOOT_IMG")`，
+ * 而 Gradle 的 `Test` 任务**默认不继承**调用方的环境变量。结果是：
+ * 即使按 `e2e_check.sh` 的用法把变量设上，用例也永远走 `assumeTrue` 分支被 SKIP ——
+ * 于是"两个真机镜像端到端通过"这件事，实际上**从来没有被这条自动化验证复现过**，
+ * 只能靠人手跑。这是一个安静的假绿灯：报告里显示 SKIPPED，不看细节就当成过了。
+ *
+ * 只在变量真的存在时才设，避免往测试环境里塞一个空值（空值会让
+ * `assumeTrue(!path.isNullOrBlank())` 的语义变得含糊）。
+ */
+tasks.withType<Test>().configureEach {
+    val bootImg = providers.environmentVariable("KSU_TEST_BOOT_IMG").orNull
+    if (!bootImg.isNullOrBlank()) {
+        environment("KSU_TEST_BOOT_IMG", bootImg)
+    }
 }

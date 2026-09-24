@@ -141,4 +141,25 @@
     <string name="log_copy_failed">复制日志失败</string>
     <string name="log_saved">日志已保存</string>
     <string name="log_save_failed">保存日志失败</string>
+    <string name="test_kernel_switch">5.x 内核支持（beta）</string>
+    <string name="test_kernel_switch_description">识别到 5.x 内核时采用五系方案（未验证）</string>
+    <string name="test_kernel_blocked_title">识别到 5.x 内核，但该支持未开启</string>
+    <string name="root_handoff_sheet_title">选择 Root 管理器</string>
+    <string name="root_handoff_sheet_subtitle">载荷拿到的 root 只活在当前进程里。想在重启后继续可用，必须把它移交给一个 Root 管理器。</string>
+    <string name="root_handoff_ksu_desc">标准 KernelSU。已装 KernelSU（包名 me.weishu.kernelsu）就选这个。</string>
+    <string name="root_handoff_sukisu_desc">SukiSU Ultra。已装 SukiSU Ultra（包名 com.sukisu.ultra）就选这个。</string>
+    <string name="root_handoff_confirm_title">已获取 root，是否移交？</string>
+    <string name="root_handoff_confirm_body">本应用当前已拿到 root。这个 root 只存在于当前进程，进程结束就没了。移交给 Root 管理器（KernelSU / SukiSU Ultra）才能让它常驻。此操作需要 root，会执行一条 late-load 命令。</string>
+    <string name="root_handoff_confirm_go">选择管理器</string>
+    <string name="root_handoff_not_now">暂不移交</string>
+    <string name="root_handoff_result_title">移交结果</string>
+    <string name="root_handoff_running">正在移交给 %1$s…</string>
+    <string name="root_handoff_card_title">移交 root</string>
+    <string name="root_handoff_card_status_checking">正在检测 root 权限…</string>
+    <string name="root_handoff_card_status_none">未检测到 root。请先在上方跑一次载荷拿到 root，之后回到这里移交给 Root 管理器。</string>
+    <string name="root_handoff_card_status_ready">已获取 root。交给 Root 管理器后，root 才能在重启后继续可用。</string>
+    <string name="root_handoff_card_action">选择管理器并移交</string>
+    <string name="root_handoff_card_action_disabled">暂不可移交</string>
+    <string name="builder_detected_kernel">实测内核：%1$s</string>
+    <string name="root_handoff_running_body">正在执行 late-load 命令。可能会弹出 root 授权框，请点允许。</string>
 </resources>

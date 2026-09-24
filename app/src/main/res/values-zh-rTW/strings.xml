@@ -236,4 +236,25 @@
     <string name="log_copy_failed">複製日誌失敗</string>
     <string name="log_saved">日誌已儲存</string>
     <string name="log_save_failed">儲存日誌失敗</string>
+    <string name="test_kernel_switch">5.x 核心支援（beta）</string>
+    <string name="test_kernel_switch_description">辨識到 5.x 核心時採用五系方案（未驗證）</string>
+    <string name="test_kernel_blocked_title">辨識到 5.x 核心，但該支援未開啟</string>
+    <string name="root_handoff_sheet_title">選擇 Root 管理器</string>
+    <string name="root_handoff_sheet_subtitle">載荷取得的 root 只活在目前行程裡。想在重開機後繼續可用，必須把它移交給一個 Root 管理器。</string>
+    <string name="root_handoff_ksu_desc">標準 KernelSU。已裝 KernelSU（套件名稱 me.weishu.kernelsu）就選這個。</string>
+    <string name="root_handoff_sukisu_desc">SukiSU Ultra。已裝 SukiSU Ultra（套件名稱 com.sukisu.ultra）就選這個。</string>
+    <string name="root_handoff_confirm_title">已取得 root，是否移交？</string>
+    <string name="root_handoff_confirm_body">本應用程式目前已取得 root。這個 root 只存在於目前行程，行程結束就沒了。移交給 Root 管理器（KernelSU / SukiSU Ultra）才能讓它常駐。此操作需要 root，會執行一條 late-load 命令。</string>
+    <string name="root_handoff_confirm_go">選擇管理器</string>
+    <string name="root_handoff_not_now">暫不移交</string>
+    <string name="root_handoff_result_title">移交結果</string>
+    <string name="root_handoff_running">正在移交給 %1$s…</string>
+    <string name="root_handoff_card_title">移交 root</string>
+    <string name="root_handoff_card_status_checking">正在偵測 root 權限…</string>
+    <string name="root_handoff_card_status_none">未偵測到 root。請先在上方跑一次載荷取得 root，之後回到這裡移交給 Root 管理器。</string>
+    <string name="root_handoff_card_status_ready">已取得 root。交給 Root 管理器後，root 才能在重開機後繼續可用。</string>
+    <string name="root_handoff_card_action">選擇管理器並移交</string>
+    <string name="root_handoff_card_action_disabled">暫不可移交</string>
+    <string name="builder_detected_kernel">偵測到核心：%1$s</string>
+    <string name="root_handoff_running_body">正在執行 late-load 命令。可能會彈出 root 授權框，請點允許。</string>
 </resources>

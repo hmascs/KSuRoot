@@ -2,6 +2,7 @@ package com.ting.root
 
 import android.app.LocaleManager
 import android.content.Context
+import com.kernelpack.policy.SeriesOverride
 import android.os.LocaleList
 
 enum class AccentColor(val storedValue: String) {
@@ -48,6 +49,35 @@ object AppPreferences {
     private const val SHIZUKU_MODE = "shizuku_mode"
     private const val PAYLOAD_SOURCE = "payload_source"
     private const val CONSUMED_INSTALL_REQUEST = "consumed_install_request"
+    private const val KERNEL_SERIES_OVERRIDE = "kernel_series_override"
+    private const val ALLOW_ABI_MISMATCH = "allow_abi_mismatch"
+    private const val ALLOW_TEST_KERNEL = "allow_test_kernel"
+
+    /**
+     * 启动时的「已获取 root，是否移交到 Root 管理器」提示是否已经问过。
+     *
+     * 为什么要持久化：root 检测是**每次启动都跑**的，如果每次都弹，
+     * 用户会被同一个框反复打断 —— 那属于噪声，而本工程的原则是"假警报比不报更糟"。
+     * 所以：自动提示**只出现一次**；之后想再移交，走主页底部的「移交 root」按钮。
+     */
+    /**
+     * 「5.x 内核支持（beta）」是否已打开。**默认关**。
+     *
+     * 关着的时候：识别到 5.x 内核**不采用**五系方案，构建被拦住并引导用户来开这里。
+     * 为什么要有这道闸：5.x 的布局锚点只有上游 target.h 一条腿，本工程没在 5.x 上
+     * 实测过 —— 默认让它参与构建，等于把未验证的偏移当可用产出交付。
+     */
+    fun allowTestKernel(context: Context): Boolean =
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .getBoolean(ALLOW_TEST_KERNEL, false)
+
+    fun setAllowTestKernel(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(ALLOW_TEST_KERNEL, enabled)
+            .apply()
+    }
+
 
     fun accentColor(context: Context): AccentColor = AccentColor.fromStoredValue(
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
@@ -93,6 +123,36 @@ object AppPreferences {
         context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
             .edit()
             .putString(PAYLOAD_SOURCE, source.storedValue)
+            .apply()
+    }
+
+    /**
+     * 载荷构建：强制指定的内核系列。
+     *
+     * 与宿主侧 `--force-series` 同一套语义 —— 与 boot.img 实测不符时**拒绝构建**，
+     * 只有下面这个"忽略冲突"开关被打开才放行（且会记入日志）。
+     */
+    fun kernelSeriesOverride(context: Context): SeriesOverride = SeriesOverride.fromWire(
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .getString(KERNEL_SERIES_OVERRIDE, null),
+    )
+
+    fun setKernelSeriesOverride(context: Context, value: SeriesOverride) {
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KERNEL_SERIES_OVERRIDE, value.wireValue)
+            .apply()
+    }
+
+    /** 高级：忽略"强制指定/基线 ABI 与实测冲突"，等价宿主侧 --i-know-what-i-am-doing。 */
+    fun allowAbiMismatch(context: Context): Boolean =
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .getBoolean(ALLOW_ABI_MISMATCH, false)
+
+    fun setAllowAbiMismatch(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(ALLOW_ABI_MISMATCH, enabled)
             .apply()
     }
 

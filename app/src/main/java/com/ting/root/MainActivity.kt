@@ -90,6 +90,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.ToggleButtonDefaults
+import java.io.File
+import com.ting.root.security.SecurityWarningBanner
+import com.ting.root.security.rememberSecurityIntegrityState
+import com.kernelpack.policy.KernelTier
+import com.kernelpack.policy.SeriesOverride
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -156,8 +162,13 @@ import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
+import com.ting.root.root.HandoffOutput
+import com.ting.root.root.RootHandoffRunner
+import com.ting.root.root.RootManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -172,6 +183,8 @@ class MainActivity : ComponentActivity() {
     private var themeMode by mutableStateOf(AppThemeMode.System)
     private var advancedMode by mutableStateOf(false)
     private var shizukuMode by mutableStateOf(false)
+    /** 「5.x 内核支持（beta）」—— 默认关，关着时识别到 5.x 不采用五系方案。 */
+    private var allowTestKernel by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -180,6 +193,7 @@ class MainActivity : ComponentActivity() {
         themeMode = AppPreferences.themeMode(this)
         advancedMode = AppPreferences.advancedMode(this)
         shizukuMode = AppPreferences.shizukuMode(this)
+        allowTestKernel = AppPreferences.allowTestKernel(this)
         setContent {
             RootMyGalaxyTheme(accentColor = accentColor, themeMode = themeMode) {
                 RootApp(
@@ -189,6 +203,7 @@ class MainActivity : ComponentActivity() {
                     themeMode = themeMode,
                     advancedMode = advancedMode,
                     shizukuMode = shizukuMode,
+                    allowTestKernel = allowTestKernel,
                     onAccentColorChanged = { color ->
                         AppPreferences.setAccentColor(this, color)
                         accentColor = color
@@ -204,6 +219,10 @@ class MainActivity : ComponentActivity() {
                     onShizukuModeChanged = { enabled ->
                         AppPreferences.setShizukuMode(this, enabled)
                         shizukuMode = enabled
+                    },
+                    onAllowTestKernelChanged = { enabled ->
+                        AppPreferences.setAllowTestKernel(this, enabled)
+                        allowTestKernel = enabled
                     },
                     openInstaller = { profileId ->
                         val installer = Intent(this, InstallActivity::class.java)
@@ -320,13 +339,17 @@ private fun RootApp(
     themeMode: AppThemeMode,
     advancedMode: Boolean,
     shizukuMode: Boolean,
+    /** 「5.x 内核支持（beta）」开关当前值；同时决定载荷构建能不能走五系方案。 */
+    allowTestKernel: Boolean,
     onAccentColorChanged: (AccentColor) -> Unit,
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onAdvancedModeChanged: (Boolean) -> Unit,
     onShizukuModeChanged: (Boolean) -> Unit,
+    onAllowTestKernelChanged: (Boolean) -> Unit,
     openInstaller: (String?) -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val installState by installViewModel.state.collectAsStateWithLifecycle()
     val history by installViewModel.history.collectAsStateWithLifecycle()
     val targetCatalog by installViewModel.targetCatalog.collectAsStateWithLifecycle()
@@ -368,6 +391,87 @@ private fun RootApp(
                 builderViewModel.build(scheme)
             },
         )
+    }
+
+    // ── 移交 root ──────────────────────────────────────────────────────
+    // 三态：null = 还没检测完 / false = 没有 root / true = 有 root。
+    // 用三态而不是 Boolean，是为了让 UI 能区分"没检测完"和"确实没有" ——
+    // 否则启动瞬间会闪一下"未检测到 root"，那是假信息。
+    var rootAvailable by remember { mutableStateOf<Boolean?>(null) }
+    var showHandoffConfirm by remember { mutableStateOf(false) }
+    var showManagerSheet by remember { mutableStateOf(false) }
+    var handoffRunning by remember { mutableStateOf(false) }
+    // 正在移交哪个管理器 —— 进度框要显示它的名字
+    var pendingManager by remember { mutableStateOf<RootManager?>(null) }
+    var handoffLines by remember { mutableStateOf<List<String>?>(null) }
+    val handoffRunner = remember { RootHandoffRunner() }
+    // 检测失败时的逐条诊断（哪条 su 路径不存在 / 被拒绝 / 超时）
+    var rootProbeDetail by remember { mutableStateOf<String?>(null) }
+    // 改变它就重跑一次检测 —— 供「重新检测」按钮用。
+    // [为什么需要] 第一版只在启动时探一次：如果 App 先起来、用户之后才在管理器里
+    // 授权，卡片会一直停在"未检测到 root"，而实际已经能用了。真机上就是这么卡的。
+    var rootProbeTick by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(rootProbeTick) {
+        rootAvailable = null
+        val has = withContext(Dispatchers.IO) { handoffRunner.detectRootVerbose() }
+        rootAvailable = has
+        rootProbeDetail = handoffRunner.lastProbe?.describe()
+        // 自动弹窗：每次打开软件、检测到 root 都弹。
+        // [2026-09-12 需求变更] 原来是"只问一次"。现在改为：
+        // **每次打开软件、只要检测到 root 就弹**（用户明确要求）。
+        // 理由也说得通：载荷拿到的 root 是一次性的，用户每次进来都可能是
+        // "刚跑完载荷、正等着移交"的状态，少弹一次就得多点一次按钮。
+        if (has) {
+            showHandoffConfirm = true
+        }
+    }
+
+    // 载荷跑完 → root 会落到 /apex/com.android.virt/bin/su。那时必须**自动重探**，
+    // 否则卡片一直停在"未检测到 root"，用户还得手动点一次「重新检测」——
+    // 而"跑完载荷就该能移交"正是这条主流程，不该多一步。
+    LaunchedEffect(installState.phase) {
+        if (installState.phase == InstallPhase.Installed) rootProbeTick++
+    }
+
+    /** 跑一次移交，结果摊平成给用户看的文字。 */
+    fun runHandoff(manager: RootManager) {
+        showManagerSheet = false
+        handoffRunning = true
+        pendingManager = manager
+        handoffLines = null
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { handoffRunner.handoff(manager) }
+            val lines = HandoffOutput.describe(result)
+            handoffLines = lines
+            handoffRunning = false
+            pendingManager = null
+            // 结果也进运行日志：移交失败时用户导出日志就能带上原文（那是唯一能自救的东西）
+            installViewModel.logExternalEvent("===== handoff: ${manager.displayName} =====")
+            lines.forEach { installViewModel.logExternalEvent(it) }
+        }
+    }
+
+    if (showHandoffConfirm) {
+        RootHandoffConfirmDialog(
+            onDismiss = { showHandoffConfirm = false },
+            onConfirm = {
+                showHandoffConfirm = false
+                showManagerSheet = true
+            },
+        )
+    }
+    if (showManagerSheet) {
+        RootManagerSheet(
+            onDismiss = { showManagerSheet = false },
+            onPick = { manager -> runHandoff(manager) },
+        )
+    }
+    if (handoffRunning) {
+        HandoffProgressDialog(pendingManager?.displayName ?: "")
+    }
+    handoffLines?.let { lines ->
+        HandoffResultDialog(lines = lines, onDismiss = { handoffLines = null })
     }
 
     // ── 载荷构建：选 boot.img ──
@@ -630,6 +734,13 @@ private fun RootApp(
                 val layoutDirection = LocalLayoutDirection.current
                 // 悬浮底栏浮在内容之上（不在 Scaffold 的 bottomBar 槽位里），
                 // 所以必须手动把它的高度让出来，否则最后一张卡片会被压住。
+                // 启动时做一次完整性校验（P2）：失败 → 顶部横幅提示，但**不阻断**使用。
+                // 校验对象是随包发布的内置载荷（app/src/main/assets/hashes.json）。
+                // 每次都重新校验，不持久化"已忽略"状态。
+                val securityReport by rememberSecurityIntegrityState(
+                    manifestAsset = "hashes.json",
+                    root = File(context.applicationInfo.nativeLibraryDir),
+                )
                 val contentPadding = PaddingValues(
                     start = padding.calculateStartPadding(layoutDirection),
                     top = padding.calculateTopPadding(),
@@ -679,6 +790,10 @@ private fun RootApp(
                                     Toast.LENGTH_SHORT,
                                 ).show()
                             },
+                            rootAvailable = rootAvailable,
+                            rootProbeDetail = rootProbeDetail,
+                            onRetryRootProbe = { rootProbeTick++ },
+                            onHandoffRoot = { showManagerSheet = true },
                             onInstall = {
                                 selectedProfile = null
                                 // ① 内核 < 6.6 且还没开 Shizuku：先提示"免 ADB 走不通"。
@@ -702,6 +817,9 @@ private fun RootApp(
                             state = buildState,
                             onPickBootImage = { bootImageLauncher.launch(arrayOf("*/*")) },
                             onBuild = { showSchemeSheet = true },
+                            // 被 5.x 开关拦下时，一键跳到设置页内核支持分组
+                            onOpenTestKernelSetting = { selectedPage = AppPage.Settings },
+                            onDismissBlock = { builderViewModel.clearBlock() },
                             onApplyAsPayload = {
                                 builderViewModel.saveAsPayload { info ->
                                     payloadSource = PayloadSource.Custom
@@ -728,11 +846,21 @@ private fun RootApp(
                             onThemeModeChanged = onThemeModeChanged,
                             onAdvancedModeChanged = onAdvancedModeChanged,
                             onShizukuModeChanged = onShizukuModeChanged,
+                            allowTestKernel = allowTestKernel,
+                            onAllowTestKernelChanged = onAllowTestKernelChanged,
                         )
                     }
                 }
                 }
-            }
+
+                // ── 安全警告横幅（P2）──
+                // 两个位置讲究：① 在 layerBackdrop 的 Box **之外** —— 否则会被录进玻璃背景（自引用）；
+                // ② 作为本 Box 的最后一个子节点 —— Compose 按声明顺序绘制，放最后才在最上层。
+                SecurityWarningBanner(
+                    report = securityReport,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
+                }
             
                     // ── Apple 风格悬浮玻璃底栏 ──
                     // 脱离屏幕边缘：四周留白 + 胶囊圆角 + 玻璃材质，浮在内容之上。
@@ -812,6 +940,14 @@ private fun OverviewPage(
     onImportPayload: () -> Unit,
     onRemovePayload: () -> Unit,
     onInstall: () -> Unit,
+    /** 是否已检测到 root；null = 还没检测完（按钮禁用并显示"检测中"）。 */
+    rootAvailable: Boolean?,
+    /** 检测失败时的逐条诊断（哪条 su 路径不行、为什么）。 */
+    rootProbeDetail: String?,
+    /** 重新检测 root。 */
+    onRetryRootProbe: () -> Unit,
+    /** 点「移交 root」。 */
+    onHandoffRoot: () -> Unit,
 ) {
     val layoutDirection = LocalLayoutDirection.current
     LazyColumn(
@@ -873,6 +1009,119 @@ private fun OverviewPage(
         }
         item { Box(Modifier.staggeredEntry(4)) { DeviceCard(device) } }
         item { Box(Modifier.staggeredEntry(5)) { HowItWorksCard() } }
+        // 主页最底部的「移交 root」—— 载荷拿到的 root 只活在当前进程里，
+        // 想让它常驻就得交给一个 Root 管理器，入口放在最下面（属于"收尾动作"）。
+        item {
+            Box(Modifier.staggeredEntry(6)) {
+                RootHandoffCard(
+                    rootAvailable = rootAvailable,
+                    rootProbeDetail = rootProbeDetail,
+                    onRetryRootProbe = onRetryRootProbe,
+                    onHandoffRoot = onHandoffRoot,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 主页底部的「移交 root」卡片。
+ *
+ * 三种状态各有各的文案，**不共用一句模糊的话**：
+ * ```
+ *   rootAvailable == null  → 检测中
+ *   rootAvailable == false → 未检测到 root（说明为什么、并指路）
+ *   rootAvailable == true  → 可移交
+ * ```
+ * 与主风格保持一致：Card + Row(图标 + 标题/正文) + 右侧动作按钮，
+ * 和 [ActivationHintCard] / [DeviceCard] 用同一套间距（18/16 内外边距、13dp 间隔）。
+ */
+@Composable
+private fun RootHandoffCard(
+    rootAvailable: Boolean?,
+    rootProbeDetail: String?,
+    onRetryRootProbe: () -> Unit,
+    onHandoffRoot: () -> Unit,
+) {
+    var showProbeDetail by remember { mutableStateOf(false) }
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(13.dp),
+            ) {
+                Icon(
+                    Icons.Rounded.Security,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                    tint = when (rootAvailable) {
+                        true -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.root_handoff_card_title),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = stringResource(
+                            when (rootAvailable) {
+                                null -> R.string.root_handoff_card_status_checking
+                                false -> R.string.root_handoff_card_status_none
+                                true -> R.string.root_handoff_card_status_ready
+                            },
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.86f),
+                    )
+                }
+            }
+            // 没检测到 root 时，把**逐条探测过程**摊开给用户 —— 否则他只知道"没有"，
+            // 不知道是路径不对、还是管理器没授权、还是超时，没法自救。
+            if (rootAvailable == false && !rootProbeDetail.isNullOrBlank()) {
+                TextButton(onClick = { showProbeDetail = !showProbeDetail }) {
+                    Text(
+                        if (showProbeDetail) "收起检测详情" else "为什么没检测到？",
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                }
+                if (showProbeDetail) {
+                    Text(
+                        text = rootProbeDetail,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                TextButton(onClick = onRetryRootProbe) {
+                    Text("重新检测", style = MaterialTheme.typography.labelLarge)
+                }
+            }
+            FilledTonalButton(
+                onClick = onHandoffRoot,
+                enabled = rootAvailable == true,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    stringResource(
+                        if (rootAvailable == true) {
+                            R.string.root_handoff_card_action
+                        } else {
+                            R.string.root_handoff_card_action_disabled
+                        },
+                    ),
+                )
+            }
+        }
     }
 }
 
@@ -1731,6 +1980,79 @@ private fun saveRunLog(context: Context, uri: Uri, entry: InstallHistoryEntry) {
     ).show()
 }
 
+/**
+ * 设置页：内核系列选择。
+ *
+ * [2026-09-12 精简] 原来这里是三段正文说明 + 三个 TextButton + 一个裸 Switch，
+ * 和全页的 miuix 偏好行**不是一套**（按钮大小、行距、图标都没有），视觉上很割裂。
+ * 现在收成一张 Card 里的三行，全部走 miuix 组件：
+ * ```
+ *   内核系列    [当前值]  >   点开弹出选择
+ *   忽略冲突（高级）  [开关]
+ *   5.x 内核支持（beta） [开关]
+ * ```
+ * 原来那三大段说明移到**弹出的选择器里**（那里正是用户做决定的地方），
+ * 设置页本身只留一行必要提示 —— 需要时才展开，不占常驻版面。
+ */
+@Composable
+private fun KernelSeriesChooser(
+    override: SeriesOverride,
+    onPicked: (SeriesOverride) -> Unit,
+) {
+    Column {
+        Text(
+            "按 boot.img 实测的版本自动选方案；也可强制指定。主线 6.6 / 6.12。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(6.dp))
+        SeriesOverride.entries.forEach { option ->
+            // 沿用本文件既有的范式（见 TargetSelectionSheet）：
+            // 整行 selectable + RadioButton(onClick = null)，避免"点圆钮"和"点整行"
+            // 两条命中路径打架（无障碍上会被读成两个控件）。
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .selectable(
+                        selected = option == override,
+                        enabled = true,
+                        role = Role.RadioButton,
+                        onClick = { onPicked(option) },
+                    )
+                    .padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                RadioButton(selected = option == override, onClick = null, enabled = true)
+                Text(
+                    option.label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (option.tier == KernelTier.TEST) {
+                        // 测试线用次要色，一眼能和主线区分（标签里也带「测试」字样）
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                )
+            }
+        }
+        Spacer(Modifier.height(2.dp))
+        Text(
+            "主线 6.6 / 6.12 ；5.x 仅作测试。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (override == SeriesOverride.FORCE_5) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "⚠ 5.x 的偏移只来自上游 target.h，本工程未实测验证，请只用于 beta。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+}
+
 @Composable
 private fun SettingsPage(
     padding: PaddingValues,
@@ -1742,6 +2064,9 @@ private fun SettingsPage(
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onAdvancedModeChanged: (Boolean) -> Unit,
     onShizukuModeChanged: (Boolean) -> Unit,
+    /** 「5.x 内核支持（beta）」开关的当前值。 */
+    allowTestKernel: Boolean,
+    onAllowTestKernelChanged: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -1751,6 +2076,11 @@ private fun SettingsPage(
     var showShizukuMissingDialog by remember { mutableStateOf(false) }
     var languageMenuTop by remember { mutableStateOf(32.dp) }
     var colorMenuTop by remember { mutableStateOf(32.dp) }
+    var showKernelDialog by remember { mutableStateOf(false) }
+    var kernelMenuTop by remember { mutableStateOf(32.dp) }
+    var seriesOverride by remember { mutableStateOf(AppPreferences.kernelSeriesOverride(context)) }
+    var allowMismatch by remember { mutableStateOf(AppPreferences.allowAbiMismatch(context)) }
+    var showTestKernelConfirm by remember { mutableStateOf(false) }
     val density = LocalDensity.current
     val currentLanguageTag = AppPreferences.languageTag(context)
 
@@ -1775,6 +2105,49 @@ private fun SettingsPage(
                 TextButton(onClick = { showShizukuMissingDialog = false }) {
                     Text(stringResource(R.string.action_cancel))
                 }
+            },
+        )
+    }
+
+    if (showKernelDialog) {
+        SideChoiceMenu(
+            choices = SeriesOverride.entries.map { it.label },
+            selectedIndex = SeriesOverride.entries.indexOf(seriesOverride),
+            topOffset = kernelMenuTop,
+            onSelected = { index ->
+                showKernelDialog = false
+                val picked = SeriesOverride.entries[index]
+                seriesOverride = picked
+                AppPreferences.setKernelSeriesOverride(context, picked)
+            },
+            onDismiss = { showKernelDialog = false },
+        )
+    }
+
+    if (showTestKernelConfirm) {
+        AlertDialog(
+            onDismissRequest = { showTestKernelConfirm = false },
+            icon = { Icon(Icons.Rounded.Warning, contentDescription = null) },
+            title = {
+                DialogDimAmount(0.24f)
+                Text("开启 5.x 内核支持？")
+            },
+            text = {
+                Text(
+                    "5.x 属测试线：本工程对它的布局锚点只有上游 target.h 一条腿，" +
+                        "没有 BTF / 反汇编实测，偏移是否与你的机器一致**未经本工程验证**。" +
+                        "开启后识别到 5.x 就会采用五系方案构建，请只用于 beta 验证。",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            },
+            confirmButton = {
+                FilledTonalButton(onClick = {
+                    showTestKernelConfirm = false
+                    onAllowTestKernelChanged(true)
+                }) { Text("仍然开启") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTestKernelConfirm = false }) { Text("取消") }
             },
         )
     }
@@ -1907,6 +2280,46 @@ private fun SettingsPage(
                 )
             }
         }
+        // ── 内核支持（一个分组装三件事）────────────────────────────────
+        // [2026-09-12 合并] 原来「内核系列」在页面最上面、「忽略冲突」跟着它、
+        // 「5.x 内核支持」单独在下面 —— 三件都是"载荷构建用哪套内核规则"，
+        // 却散在三处，用户得来回找。现在合成一张卡、一个分组，就在「关于」上面。
+        item { SectionLabel("内核支持") }
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                ArrowPreference(
+                    title = "内核系列",
+                    summary = "载荷按哪套内核布局规则构建",
+                    startAction = { PreferenceIcon(Icons.Rounded.Build) },
+                    endActions = { PreferenceValue(seriesOverride.shortLabel) },
+                    modifier = Modifier.onGloballyPositioned { coordinates ->
+                        kernelMenuTop = with(density) { coordinates.positionInWindow().y.toDp() }
+                    },
+                    onClick = { showKernelDialog = true },
+                )
+                SwitchPreference(
+                    checked = allowMismatch,
+                    onCheckedChange = {
+                        allowMismatch = it
+                        AppPreferences.setAllowAbiMismatch(context, it)
+                    },
+                    title = "忽略冲突（高级）",
+                    summary = "强制指定或基线 ABI 与实测不符时仍然出包（会记入日志）",
+                    startAction = { PreferenceIcon(Icons.Rounded.Warning) },
+                )
+                SwitchPreference(
+                    checked = allowTestKernel,
+                    // 打开这个开关等于承认"用未验证的 5.x 偏移去改内核内存"，
+                    // 所以先弹一次确认，点过才真的打开 —— 不让它在滑动中误触开启。
+                    onCheckedChange = { want ->
+                        if (want) showTestKernelConfirm = true else onAllowTestKernelChanged(false)
+                    },
+                    title = stringResource(R.string.test_kernel_switch),
+                    summary = stringResource(R.string.test_kernel_switch_description),
+                    startAction = { PreferenceIcon(Icons.Rounded.Security) },
+                )
+            }
+        }
         item { SectionLabel(stringResource(R.string.about)) }
         item {
             Card(
@@ -1936,6 +2349,178 @@ private fun schemeTitle(scheme: PayloadScheme): Int = when (scheme) {
 private fun schemeDetail(scheme: PayloadScheme): Int = when (scheme) {
     PayloadScheme.Universal -> R.string.builder_scheme_universal_detail
     PayloadScheme.VivoVrKo -> R.string.builder_scheme_vivo_detail
+}
+
+/**
+ * 「已获取 root，是否移交？」确认框。
+ *
+ * 文案刻意说清两件事：① 这个 root **只活在当前进程**（否则用户会以为已经永久 root 了）；
+ * ② 移交要 root、会跑一条 late-load 命令（让人知道点了会发生什么）。
+ * 风格与 [KernelTooOldDialog] / [AboutDialog] 一致：`DialogDimAmount` + AlertDialog。
+ */
+@Composable
+private fun RootHandoffConfirmDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Rounded.Security, contentDescription = null) },
+        title = {
+            DialogDimAmount(0.24f)
+            Text(stringResource(R.string.root_handoff_confirm_title))
+        },
+        text = {
+            Text(
+                stringResource(R.string.root_handoff_confirm_body),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        },
+        confirmButton = {
+            FilledTonalButton(onClick = onConfirm) {
+                Text(stringResource(R.string.root_handoff_confirm_go))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.root_handoff_not_now))
+            }
+        },
+    )
+}
+
+/**
+ * 管理器选择：与 [PayloadSchemeSheet] **同一套视觉**（同一 ModalBottomSheet、
+ * 同样的 Card、同样的 18dp 内边距与 14dp 图标间距），这样"选管理器"和"选方案"
+ * 在用户眼里是同一类操作。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RootManagerSheet(
+    onDismiss: () -> Unit,
+    onPick: (RootManager) -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = stringResource(R.string.root_handoff_sheet_title),
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                Text(
+                    text = stringResource(R.string.root_handoff_sheet_subtitle),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            RootManager.entries.forEachIndexed { index, manager ->
+                Card(
+                    onClick = { onPick(manager) },
+                    modifier = Modifier.fillMaxWidth(),
+                    pressFeedbackType = PressFeedbackType.Sink,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Security,
+                            contentDescription = null,
+                            modifier = Modifier.size(26.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            Text(
+                                text = "${index + 1}. ${manager.displayName}",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                text = stringResource(
+                                    when (manager) {
+                                        RootManager.KERNELSU -> R.string.root_handoff_ksu_desc
+                                        RootManager.SUKISU_ULTRA -> R.string.root_handoff_sukisu_desc
+                                    },
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                text = manager.packageName,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 移交进行中。`su` 可能弹授权框，所以这里要明确告诉用户"正在等什么"。 */
+@Composable
+private fun HandoffProgressDialog(managerName: String) {
+    AlertDialog(
+        onDismissRequest = { /* 执行中不允许点掉，避免状态错乱 */ },
+        icon = {
+            // 用主风格已有的 LoadingIndicator（与安装/构建进度同一套动效），
+            // 不引入第二种转圈样式。
+            LoadingIndicator(
+                modifier = Modifier.size(28.dp),
+                color = MaterialTheme.colorScheme.primary,
+            )
+        },
+        title = {
+            DialogDimAmount(0.24f)
+            Text(stringResource(R.string.root_handoff_running, managerName))
+        },
+        text = {
+            // [勘误] 这里原来错用了确认框的正文（root_handoff_confirm_body），
+            // 于是"正在执行"的框里写着"是否移交？"—— 答非所问。
+            // 现在用专门的进行中文案，并提醒用户可能会弹 root 授权框。
+            Text(
+                stringResource(R.string.root_handoff_running_body),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        confirmButton = {},
+    )
+}
+
+/** 移交结果：逐行原样展示（含原始输出），给一个「知道了」。 */
+@Composable
+private fun HandoffResultDialog(lines: List<String>, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Rounded.Security, contentDescription = null) },
+        title = {
+            DialogDimAmount(0.24f)
+            Text(stringResource(R.string.root_handoff_result_title))
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                lines.forEach { line ->
+                    Text(line, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            FilledTonalButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_confirm))
+            }
+        },
+    )
 }
 
 /**
@@ -2051,6 +2636,10 @@ private fun PayloadBuilderPage(
     onApplyAsPayload: () -> Unit,
     onExportLibrary: () -> Unit,
     onExportHeader: () -> Unit,
+    /** 一键去设置页开「5.x 内核支持（beta）」。 */
+    onOpenTestKernelSetting: () -> Unit,
+    /** 用户关掉阻断框 / 清掉状态。 */
+    onDismissBlock: () -> Unit,
 ) {
     val context = LocalContext.current
     val layoutDirection = LocalLayoutDirection.current
@@ -2058,6 +2647,56 @@ private fun PayloadBuilderPage(
     // 日志增长时自动贴底：构建过程中永远看得到最新一行。
     LaunchedEffect(state.log.size) {
         if (state.log.isNotEmpty()) logScroll.scrollTo(logScroll.maxValue)
+    }
+
+    // ── 硬阻断弹窗（P1 的规矩：阻断必须弹窗，不能只把字标红）──
+    // 不同类别给不同的**可执行动作**，而不是把一大段原文丢给用户自己读。
+    state.blockedKind?.let { kind ->
+        val title = when (kind) {
+            BuildBlockKind.TEST_KERNEL_DISABLED -> stringResource(R.string.test_kernel_blocked_title)
+            BuildBlockKind.BASELINE_NOT_REGISTERED -> "该内核系列还没有基线产物"
+            BuildBlockKind.ABI_CONFLICT -> "基线 ABI 冲突，已拒绝构建"
+            BuildBlockKind.UNKNOWN_KERNEL -> "无法识别内核版本"
+            BuildBlockKind.OTHER -> "构建未完成"
+        }
+        AlertDialog(
+            onDismissRequest = onDismissBlock,
+            icon = { Icon(Icons.Rounded.Error, contentDescription = null) },
+            title = {
+                DialogDimAmount(0.24f)
+                Text(title)
+            },
+            text = {
+                Text(
+                    text = state.error.orEmpty(),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            },
+            confirmButton = {
+                when (kind) {
+                    // 这一类是**唯一**有"一键修好"路径的：直接带用户去开开关
+                    BuildBlockKind.TEST_KERNEL_DISABLED -> FilledTonalButton(
+                        onClick = {
+                            onDismissBlock()
+                            onOpenTestKernelSetting()
+                        },
+                    ) { Text("去开启 5.x 内核支持") }
+
+                    // 这一类**没有**一键修好的路径：缺的是数据，不是设置。
+                    // 所以只给"关闭"，并让正文把"需要什么"说清楚。
+                    BuildBlockKind.BASELINE_NOT_REGISTERED -> FilledTonalButton(
+                        onClick = onDismissBlock,
+                    ) { Text("知道了") }
+
+                    else -> FilledTonalButton(onClick = onDismissBlock) {
+                        Text(stringResource(R.string.action_confirm))
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismissBlock) { Text("关闭") }
+            },
+        )
     }
 
     LazyColumn(

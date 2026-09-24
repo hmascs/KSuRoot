@@ -491,6 +491,18 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         updateHistoryLog()
     }
 
+    /**
+     * 让界面把**非提权链路**的事件也写进同一份运行日志（目前是「移交 root」的结果）。
+     *
+     * 为什么值得开这个口子：移交失败时**唯一能自救的东西就是那几行原始输出**，
+     * 而用户会导出运行日志。如果这一步的结果只活在对话框里，关掉就没了，
+     * 出问题时我们手里什么都没有。日志是这条链路的证据留痕。
+     *
+     * 之所以不把 [appendLog] 直接改成 public：那个函数带 `stripAnsi` + 历史同步等
+     * 内部约定，外部调用方未必知道该守什么规矩。这里只暴露"写一行日志"这一件事。
+     */
+    fun logExternalEvent(line: String) = appendLog(line)
+
     private fun startHistory() {
         val entry = historyStore.create()
         activeHistoryEntry = entry

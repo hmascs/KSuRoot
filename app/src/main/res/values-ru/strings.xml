@@ -153,4 +153,25 @@
     <string name="kernelsu_card_description">Ядровое root-решение для Android</string>
     <string name="history_shizuku_used">Shizuku использовался</string>
     <string name="history_shizuku_not_used">Shizuku не использовался</string>
+    <string name="test_kernel_switch">5.x kernel support (beta)</string>
+    <string name="test_kernel_switch_description">Use the 5.x scheme when a 5.x kernel is detected (unverified).</string>
+    <string name="test_kernel_blocked_title">5.x kernel detected - support is off</string>
+    <string name="root_handoff_sheet_title">Choose a root manager</string>
+    <string name="root_handoff_sheet_subtitle">The root obtained by the payload only lives in this process. To keep it after reboot, hand it over to a root manager.</string>
+    <string name="root_handoff_ksu_desc">Standard KernelSU. Use this if you already run KernelSU (package me.weishu.kernelsu).</string>
+    <string name="root_handoff_sukisu_desc">SukiSU Ultra. Use this if you run SukiSU Ultra (package com.sukisu.ultra).</string>
+    <string name="root_handoff_confirm_title">Root obtained - hand it over?</string>
+    <string name="root_handoff_confirm_body">This app now has root. That root only exists inside this process and is gone once it exits. Handing it to a root manager (KernelSU / SukiSU Ultra) makes it persist. This needs root and will run a late-load command.</string>
+    <string name="root_handoff_confirm_go">Choose manager</string>
+    <string name="root_handoff_not_now">Not now</string>
+    <string name="root_handoff_result_title">Handoff result</string>
+    <string name="root_handoff_running">Handing over to %1$s...</string>
+    <string name="root_handoff_card_title">Hand over root</string>
+    <string name="root_handoff_card_status_checking">Checking for root...</string>
+    <string name="root_handoff_card_status_none">No root detected. Run a payload above first, then come back here to hand it over.</string>
+    <string name="root_handoff_card_status_ready">Root obtained. Hand it to a root manager so it survives a reboot.</string>
+    <string name="root_handoff_card_action">Choose manager and hand over</string>
+    <string name="root_handoff_card_action_disabled">Not available yet</string>
+    <string name="builder_detected_kernel">Detected kernel: %1$s</string>
+    <string name="root_handoff_running_body">Running the late-load command. A root authorization prompt may appear - please confirm it.</string>
 </resources>
