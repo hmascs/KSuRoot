@@ -134,7 +134,7 @@
     <string name="about">Giới thiệu</string>
     <string name="about_title">Giới thiệu về Root My Galaxy</string>
     <string name="about_description">Giới thiệu về Root My Galaxy</string>
-    <string name="about_body">Trình cài đặt một chạm sử dụng lỗ hổng kernel để root các thiết bị Samsung Galaxy được hỗ trợ.</string>
+    <string name="about_body">Trình cài đặt một chạm sử dụng lỗ hổng kernel để root thiết bị được hỗ trợ bằng KernelSU.</string>
     <string name="history_payload">Payload: %1$s</string>
     <string name="export_log">Xuất nhật ký</string>
     <string name="export_log_saved">Đã lưu nhật ký</string>
@@ -144,4 +144,20 @@
     <string name="kernelsu_card_description">Giải pháp root dựa trên kernel cho Android</string>
     <string name="history_shizuku_used">Đã dùng Shizuku</string>
     <string name="history_shizuku_not_used">Không dùng Shizuku</string>
+    <string name="payload_note_libbs">release v1.3.0, nhánh riêng cho vivo/iQOO, thêm một cách vượt anti-root vr.ko</string>
+    <string name="payload_note_rollback_6689">Ở 6.6.89, thượng nguồn đã quay về libbs.so tích hợp; đây là bản đóng gói lại từ gói exploit, chỉ giữ làm phương án dự phòng</string>
+    <string name="payload_note_share_sixmodels">Cùng một tệp nhị phân dùng chung cho sáu mẫu máy, gồm cả vivo X200</string>
+    <string name="payload_note_sixmodels_fallback">Một tệp nhị phân dùng cho sáu mẫu máy; tệp này đã được đăng ký dưới iQOO Z10 Turbo+ 6.6.57, ở đây giữ làm phương án dự phòng liên mẫu máy</string>
+    <string name="payload_note_share_three">Một tệp nhị phân dùng chung cho ba mẫu máy; hãy chọn thủ công trong danh sách payload</string>
+    <string name="payload_note_dedup_four">Bốn tệp có cùng sha256; đã loại trùng còn một bản — hãy chọn thủ công trong danh sách payload</string>
+    <string name="payload_note_dedup_three">Ba tệp có cùng sha256; đã loại trùng còn một bản — hãy chọn thủ công trong danh sách payload</string>
+    <string name="payload_note_dedup_two">Hai tệp có cùng sha256; đã loại trùng còn một bản — hãy chọn thủ công trong danh sách payload</string>
+    <string name="payload_note_pie_exec">Tệp thực thi PIE (không phải .so); cách gọi khác với các payload khác — hãy chọn thủ công trong danh sách</string>
+    <string name="payload_note_exec_8g2">Payload thực thi độc lập 1,8 MB; hãy chọn thủ công trong danh sách payload</string>
+    <string name="payload_detail_pick_hint">Chạm vào một payload để dùng nó cho lần chạy này. Nếu không chọn gì, hệ thống vẫn tự khớp theo máy.</string>
+    <string name="payload_detail_selected">Đang chỉ định: %1$s</string>
+    <string name="payload_detail_recommended">Khuyến nghị cho máy này</string>
+    <string name="install_confirm_manual_payload">Payload sẽ dùng: %1$s (do bạn chọn)</string>
+    <string name="log_manual_payload">Payload chỉ định thủ công: %1$s (không phải kết quả tự khớp cho %2$s)</string>
+    <string name="payload_note_exec_mt6895">4,9 MB; nhận ba chữ số cuối của phiên bản nhân làm đối số — hãy chọn thủ công trong danh sách payload</string>
 </resources>

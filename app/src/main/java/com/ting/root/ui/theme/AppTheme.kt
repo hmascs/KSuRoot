@@ -47,14 +47,55 @@ object MiuixAccent {
 }
 
 /**
+ * 全局圆角尺度。
+ *
+ * 与 [AppShapes] 同源：这里给需要直接构造 `RoundedCornerShape` 的场景
+ * （玻璃层、局部容器）提供同一套数值，避免再出现 28dp 这种孤立值。
+ */
+object Radii {
+    val small = 12.dp
+    val medium = 16.dp
+    val large = 24.dp
+    val extraLarge = 32.dp
+}
+
+/**
+ * 全局排版尺度。
+ *
+ * 之前各处散落着 10/12/14/15/16/18/20dp 等随手值，界面之间"看着差不多、
+ * 数值不一样"，是整体协调度差的主要来源。这里收敛成一套固定阶梯，
+ * 新代码一律引用常量，不再写字面量 dp。
+ *
+ * 命名按用途而非数值，这样以后调整尺度只需改这一处。
+ */
+object Spacing {
+    /** 紧邻元素，如图标与其文字标签。 */
+    val tight = 4.dp
+
+    /** 行内元素间距。 */
+    val inline = 8.dp
+
+    /** 相关内容块之间。 */
+    val item = 12.dp
+
+    /** 卡片内部留白。 */
+    val card = 16.dp
+
+    /** 页面左右安全边距。 */
+    val page = 20.dp
+}
+
+/**
  * KSU 风格的圆角规格：卡片 24dp、胶囊 32dp。
  * 参考图实测卡片与容器都是大圆角，且不用阴影，靠圆角+底色差分层。
+ *
+ * 数值取自 [Radii]，保证与直接使用圆角的地方是同一套尺度。
  */
 private val AppShapes = Shapes(
-    small = RoundedCornerShape(12.dp),
-    medium = RoundedCornerShape(16.dp),
-    large = RoundedCornerShape(24.dp),
-    extraLarge = RoundedCornerShape(32.dp),
+    small = RoundedCornerShape(Radii.small),
+    medium = RoundedCornerShape(Radii.medium),
+    large = RoundedCornerShape(Radii.large),
+    extraLarge = RoundedCornerShape(Radii.extraLarge),
 )
 
 private val AppTypography = Typography(

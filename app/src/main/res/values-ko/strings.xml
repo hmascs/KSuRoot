@@ -30,7 +30,7 @@
     <string name="about">정보</string>
     <string name="about_title">Root My Galaxy 정보</string>
     <string name="about_description">Root My Galaxy 정보</string>
-    <string name="about_body">한 번의 클릭으로 지원되는 삼성 Galaxy 기기를 커널 익스플로잇을 이용해 루팅하는 설치기입니다.</string>
+    <string name="about_body">커널 취약점을 이용해 지원 기기를 한 번의 클릭으로 KernelSU로 루팅하는 설치기입니다.</string>
     <string name="history_payload">Payload: %1$s</string>
     <string name="export_log">로그 내보내기</string>
     <string name="export_log_saved">로그가 저장되었습니다</string>
@@ -40,4 +40,20 @@
     <string name="kernelsu_card_description">Android용 커널 기반 루트 솔루션</string>
     <string name="history_shizuku_used">Shizuku 사용됨</string>
     <string name="history_shizuku_not_used">Shizuku 사용 안 함</string>
+    <string name="payload_note_libbs">release v1.3.0, vivo/iQOO 전용 브랜치, vr.ko 안티루트 우회 1개 추가</string>
+    <string name="payload_note_rollback_6689">6.6.89는 업스트림에서 내장 libbs.so로 회귀했습니다. 이 파일은 익스플로잇 번들의 재패키징 버전이며 폴백 전용입니다</string>
+    <string name="payload_note_share_sixmodels">vivo X200 등 6개 기종과 동일 바이너리를 공유합니다</string>
+    <string name="payload_note_sixmodels_fallback">6개 기종 공용 1개. 동일 바이너리는 iQOO Z10 Turbo+ 6.6.57에 이미 등록되어 있으며, 여기서는 기종 간 폴백으로 유지합니다</string>
+    <string name="payload_note_share_three">3개 기종이 1개를 공유합니다. 페이로드 목록에서 직접 선택하세요</string>
+    <string name="payload_note_dedup_four">4개 파일이 동일한 sha256입니다. 중복 제거하여 1개만 유지했습니다. 페이로드 목록에서 직접 선택하세요</string>
+    <string name="payload_note_dedup_three">3개 파일이 동일한 sha256입니다. 중복 제거하여 1개만 유지했습니다. 페이로드 목록에서 직접 선택하세요</string>
+    <string name="payload_note_dedup_two">2개 파일이 동일한 sha256입니다. 중복 제거하여 1개만 유지했습니다. 페이로드 목록에서 직접 선택하세요</string>
+    <string name="payload_note_pie_exec">PIE 실행 파일(.so 아님). 다른 페이로드와 실행 방식이 다르므로 목록에서 직접 선택하세요</string>
+    <string name="payload_note_exec_8g2">1.8 MB 단독 실행 페이로드입니다. 페이로드 목록에서 직접 선택하세요</string>
+    <string name="payload_detail_pick_hint">페이로드를 누르면 이번 실행에 사용할 것을 지정할 수 있습니다. 아무것도 선택하지 않으면 기기에 맞춰 자동으로 일치합니다.</string>
+    <string name="payload_detail_selected">현재 지정: %1$s</string>
+    <string name="payload_detail_recommended">이 기기에 권장</string>
+    <string name="install_confirm_manual_payload">사용할 페이로드: %1$s (직접 지정)</string>
+    <string name="log_manual_payload">수동 지정 페이로드: %1$s (%2$s의 자동 일치 결과가 아님)</string>
+    <string name="payload_note_exec_mt6895">4.9 MB. 커널 버전 마지막 3자리를 인수로 받습니다. 페이로드 목록에서 직접 선택하세요</string>
 </resources>

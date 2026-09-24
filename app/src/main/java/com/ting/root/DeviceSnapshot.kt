@@ -23,6 +23,25 @@ data class DeviceSnapshot(
         get() = kernelRelease.takeWhile { it.isDigit() || it == '.' }
 
     /**
+     * 内核 release 里的 **localversion 段**，也就是 `-` 之后的构建串。
+     *
+     * `6.6.89-android15-8-g1f71897ac249-abogki467805059-4k` → `android15-8-g1f71897ac249-abogki467805059-4k`
+     *
+     * 厂商载荷是按**具体构建**编译的（同一台机型不同 OTA 的 6.6.89 都要各来一份），
+     * 光靠 `kernelVersion` 区分不开，必须带上这一段才能命中正确的那份库。
+     */
+    val kernelBuildTag: String
+        get() = kernelRelease.substringAfter('-', "")
+
+    /** 内核构建的短标识：`g` 后面那截 commit（`g1f71897ac249` → `1f71897ac249`）。 */
+    val kernelCommit: String
+        get() = KERNEL_COMMIT_PATTERN.find(kernelRelease)?.groupValues?.get(1).orEmpty()
+
+    /** 内核代号主版本，例如 `6.6`、`6.12` —— 相似机型回落时用它比较。 */
+    val kernelMajorMinor: String
+        get() = kernelVersion.split('.').take(2).joinToString(".")
+
+    /**
      * 内核是否达到「免 ADB 提权」的下限 —— **6.6 及以上**。
      *
      * GhostLock（CVE-2026-43499）打的是 `rt_mutex` + `pipe_buffer` 这条链，
@@ -38,6 +57,8 @@ data class DeviceSnapshot(
         }
 
     companion object {
+        private val KERNEL_COMMIT_PATTERN = Regex("-g([0-9a-f]{10,})")
+
         fun current(): DeviceSnapshot {
             val uname = Os.uname()
             return DeviceSnapshot(

@@ -2,6 +2,7 @@ package com.ting.root
 
 import android.content.Context
 import android.util.AtomicFile
+import android.util.Log
 import org.json.JSONObject
 import java.io.File
 import java.util.UUID
@@ -25,6 +26,14 @@ data class InstallHistoryEntry(
 class InstallHistoryStore(private val context: Context) {
     private val directory = File(context.filesDir, "install-history").apply { mkdirs() }
 
+    /**
+     * `AtomicFile` 缓存 —— 按 entry id 复用。
+     *
+     * 安装过程中同一份记录要写几十上百次，而 `AtomicFile` 的构造会去 stat
+     * 目标文件与 `.bak` 文件。建造成本不大，但完全没有复用的必要，顺手省掉。
+     */
+    private val atomicFiles = HashMap<String, AtomicFile>()
+
     fun load(): List<InstallHistoryEntry> = directory
         .listFiles { file -> file.extension == "json" }
         .orEmpty()
@@ -36,10 +45,20 @@ class InstallHistoryStore(private val context: Context) {
             entry.copy(
                 completedAtMillis = System.currentTimeMillis(),
                 result = InstallRunResult.Failed,
-            ).also(::save)
+            ).also { save(it) }
         } else {
             entry
         }
+    }
+
+    /**
+     * 清理某个记录的内存态与磁盘尾文件。安装结束、UI 已经拿到最终 entry 之后调用。
+     */
+    fun release(id: String) {
+        synchronized(atomicFiles) { atomicFiles.remove(id) }
+        runCatching {
+            File(directory, "$id.json.bak").takeIf(File::exists)?.delete()
+        }.onFailure { Log.w(TAG, "清理历史尾文件失败: $id", it) }
     }
 
     fun create(): InstallHistoryEntry = InstallHistoryEntry(
@@ -49,11 +68,16 @@ class InstallHistoryStore(private val context: Context) {
         result = InstallRunResult.Running,
         log = "",
         usedShizuku = AppPreferences.shizukuMode(context),
-    ).also(::save)
+    ).also { save(it) }
 
+    /**
+     * 完整落盘：`fsync` + 原子替换。
+     *
+     * 只用于**低频且必须持久**的时刻 —— 新建记录、切换 profile、结束记录。
+     * 提权过程中高频刷新的日志不要走这里（见 [saveDraft]）。
+     */
     fun save(entry: InstallHistoryEntry) {
-        val target = File(directory, "${entry.id}.json")
-        val atomicFile = AtomicFile(target)
+        val atomicFile = atomicFileFor(entry.id)
         val output = atomicFile.startWrite()
         try {
             output.write(encode(entry).toString().toByteArray(Charsets.UTF_8))
@@ -64,6 +88,36 @@ class InstallHistoryStore(private val context: Context) {
             atomicFile.failWrite(output)
             throw error
         }
+    }
+
+    /**
+     * 草稿落盘：同一套 AtomicFile 原子替换流程，但**跳过 `fd.sync()`**。
+     *
+     * 为什么单独留一条路径：`fd.sync()` 是一次真正的 fsync 系统调用，在 UFS/eMMC
+     * 上通常 1~10ms，遇到后台刷写或闪存忙时会飙到几十毫秒。提权过程中日志是
+     * 每条一行往里灌的，原来每行都 fsync 一遍 —— 这份写入发生在 `Dispatchers.IO`
+     * 上，不会直接卡住 UI 线程，但它持续占着 IO 线程、和日志轮询抢文件系统带宽，
+     * 而且日志本来就是**进度输出**而不是账本：进程被杀时丢掉最后几行完全可接受。
+     *
+     * 做法是仍然走 `startWrite`/`finishWrite` 的「写临时文件 → rename」原子替换，
+     * 所以历史文件**永远不会处于半截状态**，只是不保证断电后最后几行还在。
+     * 真正需要保证落盘的三个时刻（create / profile / finish）都仍然调 [save]。
+     */
+    fun saveDraft(entry: InstallHistoryEntry) {
+        val atomicFile = atomicFileFor(entry.id)
+        val output = atomicFile.startWrite()
+        try {
+            output.write(encode(entry).toString().toByteArray(Charsets.UTF_8))
+            output.flush()
+            atomicFile.finishWrite(output)
+        } catch (error: Throwable) {
+            atomicFile.failWrite(output)
+            throw error
+        }
+    }
+
+    private fun atomicFileFor(id: String): AtomicFile = synchronized(atomicFiles) {
+        atomicFiles.getOrPut(id) { AtomicFile(File(directory, "$id.json")) }
     }
 
     private fun encode(entry: InstallHistoryEntry) = JSONObject()
@@ -103,5 +157,9 @@ class InstallHistoryStore(private val context: Context) {
             },
             usedShizuku = value.optBoolean("usedShizuku", false),
         )
+    }
+
+    private companion object {
+        const val TAG = "InstallHistory"
     }
 }

@@ -29,7 +29,7 @@
     <string name="about">アプリ情報</string>
     <string name="about_title">Root My Galaxy について</string>
     <string name="about_description">Root My Galaxyについて</string>
-    <string name="about_body">対応Samsung Galaxy端末をカーネル脆弱性を利用してワンクリックでroot化するインストーラーです。</string>
+    <string name="about_body">カーネル脆弱性を利用して、対応端末をワンクリックで KernelSU 化するインストーラーです。</string>
     <string name="history_payload">Payload: %1$s</string>
     <string name="export_log">ログをエクスポート</string>
     <string name="export_log_saved">ログを保存しました</string>
@@ -39,4 +39,20 @@
     <string name="kernelsu_card_description">Android向けカーネルベースのrootソリューション</string>
     <string name="history_shizuku_used">Shizukuを使用</string>
     <string name="history_shizuku_not_used">Shizuku未使用</string>
+    <string name="payload_note_libbs">release v1.3.0、vivo/iQOO 専用ブランチ、vr.ko 対策の root 回避を 1 つ追加</string>
+    <string name="payload_note_rollback_6689">6.6.89 は上流で内蔵 libbs.so に回帰。これは exploit パッケージ内の再パッケージ版で、フォールバック専用</string>
+    <string name="payload_note_share_sixmodels">vivo X200 など 6 機種と同一バイナリを共有</string>
+    <string name="payload_note_sixmodels_fallback">6 機種共通の 1 本。同一バイナリは iQOO Z10 Turbo+ 6.6.57 で登録済み。ここでは機種横断フォールバックとして保持</string>
+    <string name="payload_note_share_three">3 機種で 1 本を共有。ペイロード一覧から手動で選択してください</string>
+    <string name="payload_note_dedup_four">4 ファイルが同一 sha256。重複排除して 1 本に。ペイロード一覧から手動で選択してください</string>
+    <string name="payload_note_dedup_three">3 ファイルが同一 sha256。重複排除して 1 本に。ペイロード一覧から手動で選択してください</string>
+    <string name="payload_note_dedup_two">2 ファイルが同一 sha256。重複排除して 1 本に。ペイロード一覧から手動で選択してください</string>
+    <string name="payload_note_pie_exec">PIE 実行ファイル（.so ではない）。他のペイロードと起動方法が異なるため、一覧から手動で選択してください</string>
+    <string name="payload_note_exec_8g2">1.8 MB の単体実行ペイロード。ペイロード一覧から手動で選択してください</string>
+    <string name="payload_detail_pick_hint">ペイロードをタップすると今回使用するものを指定できます。未選択なら機種に応じて自動一致します。</string>
+    <string name="payload_detail_selected">現在の指定：%1$s</string>
+    <string name="payload_detail_recommended">この端末に推奨</string>
+    <string name="install_confirm_manual_payload">使用するペイロード：%1$s（手動指定）</string>
+    <string name="log_manual_payload">手動指定ペイロード：%1$s（%2$s の自動一致結果ではありません）</string>
+    <string name="payload_note_exec_mt6895">4.9 MB。カーネル版の下 3 桁を引数に取ります。ペイロード一覧から手動で選択してください</string>
 </resources>
