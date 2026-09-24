@@ -19,8 +19,8 @@ android {
         applicationId = "com.ting.root"
         minSdk = 33
         targetSdk = 36
-        versionCode = 302
-        versionName = "3.0.2"
+        versionCode = 320
+        versionName = "3.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
@@ -86,6 +86,11 @@ android {
         jniLibs.keepDebugSymbols += "**/libionstack.so"
         // 同理还有执行载荷的 helper：它也是第三方预编译二进制。
         jniLibs.keepDebugSymbols += "**/libcve43499root.so"
+        // 随包内置的厂商载荷（Xiaomi / vivo 各机型 × 各内核版本，共 38 份）。
+        // 它们全部是**别人编译好的二进制**，靠编译期常量寻址内核符号：
+        // 一旦被 strip，符号表与常量布局都会变，映射表里登记的 sha256 立刻失配，
+        // 设备就再也匹配不到自己那一份。统一通配保护，避免逐个枚举漏项。
+        jniLibs.keepDebugSymbols += "**/libksu_*.so"
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
 }
@@ -129,4 +134,23 @@ dependencies {
     androidTestImplementation("androidx.test:core-ktx:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
+}
+
+/**
+ * 把宿主环境变量 `KSU_TEST_BOOT_IMG` 透进单测 JVM。
+ *
+ * [为什么必须有这段] `Lz4Test` 的端到端用例读的是 `System.getenv("KSU_TEST_BOOT_IMG")`，
+ * 而 Gradle 的 `Test` 任务**默认不继承**调用方的环境变量。结果是：
+ * 即使按 `e2e_check.sh` 的用法把变量设上，用例也永远走 `assumeTrue` 分支被 SKIP ——
+ * 于是"两个真机镜像端到端通过"这件事，实际上**从来没有被这条自动化验证复现过**，
+ * 只能靠人手跑。这是一个安静的假绿灯：报告里显示 SKIPPED，不看细节就当成过了。
+ *
+ * 只在变量真的存在时才设，避免往测试环境里塞一个空值（空值会让
+ * `assumeTrue(!path.isNullOrBlank())` 的语义变得含糊）。
+ */
+tasks.withType<Test>().configureEach {
+    val bootImg = providers.environmentVariable("KSU_TEST_BOOT_IMG").orNull
+    if (!bootImg.isNullOrBlank()) {
+        environment("KSU_TEST_BOOT_IMG", bootImg)
+    }
 }

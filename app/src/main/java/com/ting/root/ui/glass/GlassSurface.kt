@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.ting.root.ui.theme.Radii
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
@@ -136,7 +137,7 @@ private fun rememberGrainBrush(): ShaderBrush = remember {
 @Composable
 fun Modifier.glassNavBar(
     backdrop: LayerBackdrop? = LocalGlassBackdrop.current,
-    shape: Shape = RoundedCornerShape(28.dp),
+    shape: Shape = RoundedCornerShape(Radii.large),
     blurRadius: Dp = GlassRegularBlurRadius,
 ): Modifier = liquidGlass(
     backdrop = backdrop,

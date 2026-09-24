@@ -34,7 +34,7 @@ object BootImageParser {
         fun decompress(data: ByteArray, offset: Int, length: Int): ByteArray?
     }
 
-    /** 默认只处理 gzip（`Image.gz`）。lz4/zstd/xz 需要调用方注入实现。 */
+    /** 只处理 gzip（历史实现，保留兼容）。新代码请用 [KernelDecompressor.default]。 */
     val gzipDecompressor = Decompressor { data, offset, length ->
         if (isGzip(data, offset)) {
             try {
@@ -56,7 +56,17 @@ object BootImageParser {
         } else null
     }
 
-    class Result(val image: ByteArray, val info: BootImageInfo)
+    /**
+     * 解析结果。
+     *
+     * [diagnosis] 是**失败的具体原因**（人类可读）。为空表示没出现问题；
+     * 有值时调用方应把它显示给用户，而不是继续用笼统的"找不到 Linux version"。
+     */
+    class Result(
+        val image: ByteArray,
+        val info: BootImageInfo,
+        val diagnosis: String? = null,
+    )
 
     /**
      * 解析输入文件，返回内核 Image 字节。
@@ -66,18 +76,35 @@ object BootImageParser {
      */
     @JvmOverloads
     @JvmStatic
-    fun parse(fileBytes: ByteArray, decompressor: Decompressor? = gzipDecompressor): Result {
+    fun parse(fileBytes: ByteArray, decompressor: Decompressor? = KernelDecompressor.default): Result {
         require(fileBytes.size >= 64) { "输入文件过小（${fileBytes.size} 字节），不是有效的 boot.img / Image" }
 
         return when {
             startsWith(fileBytes, 0, MAGIC_BOOT) -> parseAndroidBoot(fileBytes, decompressor)
-            startsWith(fileBytes, 0, MAGIC_VENDOR) -> throw IllegalArgumentException(
-                "这是 vendor_boot.img（VNDRBOOT），内核不在这里。" +
-                    "请使用 boot.img / init_boot.img（GKI 设备的 kernel 在 boot.img，不在 vendor_boot.img）"
-            )
+            startsWith(fileBytes, 0, MAGIC_VENDOR) -> {
+                // 格式识别层会把"内核在哪儿"说清楚，比笼统报错有用得多。
+                val info = BootFormatDetector.detect(fileBytes)
+                throw IllegalArgumentException(
+                    listOfNotNull(
+                        info.summary,
+                        info.evidence.joinToString("；").takeIf { it.isNotBlank() },
+                        info.advice,
+                    ).joinToString("\n"),
+                )
+            }
             else -> parseRawImage(fileBytes, decompressor)
         }
     }
+
+    /**
+     * 只做**格式识别**，不解析内核。
+     *
+     * 给 UI 用：用户选完文件就能立刻看到"这是 vendor_boot.img，内核不在这里"，
+     * 而不是等构建跑一半才被拒。
+     */
+    @JvmStatic
+    fun detectFormat(fileBytes: ByteArray): BootFormatDetector.Info =
+        BootFormatDetector.detect(fileBytes)
 
     /** 直接解析（跳过 boot 头）。 */
     private fun parseRawImage(fileBytes: ByteArray, decompressor: Decompressor?): Result {
@@ -132,6 +159,7 @@ object BootImageParser {
 
         var image = fileBytes.copyOfRange(kernelOffset, kernelOffset + kernelSize.toInt())
         var decompressed = false
+        var diagnosis: String? = null
 
         // arm64 Image 头：text_offset@0x08, image_size@0x10, flags@0x18, magic@0x38="ARMd"
         if (isArm64Image(image, 0)) {
@@ -140,7 +168,7 @@ object BootImageParser {
                 image = image.copyOfRange(0, arm64ImageSize.toInt())
             }
         } else if (decompressor != null) {
-            val out = decompressor.decompress(image, 0, image.size)
+            val (out, why) = tryDecompress(image, decompressor)
             if (out != null) {
                 image = out
                 decompressed = true
@@ -150,7 +178,16 @@ object BootImageParser {
                         image = image.copyOfRange(0, arm64ImageSize.toInt())
                     }
                 }
+            } else {
+                diagnosis = why ?: if (!isArm64Image(image, 0) &&
+                    KernelDecompressor.detect(image, 0) == KernelDecompressor.Format.NONE
+                ) ParseError.NotKernelImage.readable else null
             }
+        }
+
+        // v3/v4 的 header_size 必须能对上，否则内核段起点就是猜的
+        if (diagnosis == null && headerVersion >= 3 && headerSize != 1580L && headerSize != 1584L) {
+            diagnosis = ParseError.HeaderVersionUnknown(headerVersion, headerSize).readable
         }
 
         val info = BootImageInfo(
@@ -164,8 +201,28 @@ object BootImageParser {
             decompressed = decompressed,
             arm64Image = isArm64Image(image, 0),
         )
-        return Result(image, info)
+        return Result(image, info, diagnosis)
     }
+
+    /**
+     * 解压内核段，**同时把失败原因带出来**。
+     *
+     * 用默认解压器时走 [KernelDecompressor.decompress] 的详细 API，能区分
+     * "格式不支持" / "解码失败" / "根本没压缩"；调用方注入了自定义实现时，
+     * 接口只能返回 null，拿不到原因（保持向后兼容）。
+     */
+    private fun tryDecompress(data: ByteArray, decompressor: Decompressor): Pair<ByteArray?, String?> =
+        if (decompressor === KernelDecompressor.default) {
+            when (val r = KernelDecompressor.decompress(data, 0, data.size)) {
+                is DecompressOutcome.Ok -> r.bytes to null
+                is DecompressOutcome.Unsupported ->
+                    null to ParseError.UnsupportedCompression(r.format, r.magicHex).readable
+                is DecompressOutcome.Failed -> null to ParseError.DecompressFailed(r.format, r.reason).readable
+                DecompressOutcome.NotCompressed -> null to null
+            }
+        } else {
+            decompressor.decompress(data, 0, data.size) to null
+        }
 
     /**
      * 是否 arm64 Image：

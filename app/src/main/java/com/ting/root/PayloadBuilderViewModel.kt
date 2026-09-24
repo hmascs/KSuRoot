@@ -8,6 +8,14 @@ import androidx.lifecycle.viewModelScope
 import com.kernelpack.KernelPack
 import com.kernelpack.PackRequest
 import com.kernelpack.PackResult
+import com.kernelpack.policy.GateDecision
+import com.kernelpack.boot.BootImageParser
+import com.kernelpack.boot.KernelDecompressor
+import com.kernelpack.kallsyms.KallsymsFinder
+import com.kernelpack.kallsyms.KallsymsOptions
+import com.kernelpack.policy.KernelSchemeSelector
+import com.kernelpack.profile.BaselineScheme
+import com.kernelpack.profile.BaselineRegistry
 import com.kernelpack.profile.BaselineProfiles
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,8 +40,6 @@ import java.security.MessageDigest
 enum class PayloadScheme(
     /** jniLibs 里的文件名。 */
     val library: String,
-    /** 打包时使用的基线 id（kernelpack 的 BaselineProfiles）。 */
-    val baselineId: String,
     /** 产物文件名前缀。 */
     val filePrefix: String,
     /**
@@ -42,21 +48,83 @@ enum class PayloadScheme(
      * 所以不藏在代码里，直接跟文件名、大小、sha256 一起摊开给人看。
      */
     val versionLabel: String,
+    /**
+     * 这个方案在 [com.kernelpack.profile.BaselineRegistry] 里对应的方案维度。
+     *
+     * 为什么要显式映射：闸门要靠它去查「这台机器的四元组有没有对应基线」；
+     * 不传的话闸门只能按 UNKNOWN 处理并跳过注册表建议（那就白做了）。
+     */
+    val baselineScheme: BaselineScheme,
 ) {
+    /** 通用方案：Pixel / GKI 线，不含厂商绕过。 */
     Universal(
         library = "libionstack.so",
-        baselineId = "IONSTACK-P10-CP2A.260605.012",
         filePrefix = "payload-universal",
         versionLabel = "IonStack · blazer-CP2A.260605.012",
+        baselineScheme = BaselineScheme.UNIVERSAL,
     ),
+    /** vivo / iQOO 方案：多一条 vr.ko 反 root 绕过。 */
     VivoVrKo(
         library = "libbs.so",
-        baselineId = "PD2520-BP2A.250605.031.A3",
         filePrefix = "payload-vivo",
         // 就是 boxiaolanya2008 仓库 release v1.3.0 里的 preload.so（176544 字节）
         versionLabel = "release v1.3.0",
+        baselineScheme = BaselineScheme.VIVO,
     ),
 }
+
+/**
+ * 构建被**硬拦**的原因类别。
+ *
+ * 为什么要分类别而不是只给一段文字：P1 定的规矩是「阻断必须是弹窗、不能只是把字标红」，
+ * 而不同原因的**补救动作完全不同** ——
+ * ```
+ *   TEST_KERNEL_DISABLED → 一键去开「5.x 内核支持（beta）」
+ *   ABI_CONFLICT         → 去换基线 / boot.img
+ *   OTHER                → 看日志
+ * ```
+ * 只传文字的话，UI 只能把一大段原文塞进弹窗，用户读完还是不知道点哪儿。
+ */
+enum class BuildBlockKind {
+    /** 识别到 5.x 内核，但「5.x 内核支持（beta）」没开。 */
+    TEST_KERNEL_DISABLED,
+
+    /** 该 (方案, 内核系列) 组合还没有登记偏移产物（如 6.12 暂无数据）。 */
+    BASELINE_NOT_REGISTERED,
+
+    /** 基线 ABI / 强制指定与实测内核冲突。 */
+    ABI_CONFLICT,
+
+    /** 认不出内核版本。 */
+    UNKNOWN_KERNEL,
+
+    /** 其它（IO、载荷读不到等）。 */
+    OTHER,
+}
+
+/**
+ * 把闸门给的标题归类，供 UI 决定弹哪个阻断框。
+ *
+ * [为什么是顶层函数而不是 ViewModel 的成员] 它**不依赖任何实例状态** ——
+ * 纯粹是"标题 → 类别"的映射。放顶层有两个好处：① 其它包的单测能直接验它
+ * （成员函数要求测试同包）；② 顺带说明它没有副作用，不会有人误以为它改了状态。
+ *
+ * 做法是**看标题里的关键短语**而不是另起一套错误码：闸门的 Blocked 是数据类，
+ * 改它的构造会影响既有调用方；而标题本身是给人看的、也稳定。
+ * 归类失败一律落 [BuildBlockKind.OTHER] —— 宁可弹一个通用框，
+ * 也不要瞎猜类别导致把用户引到错误的设置项上。
+ */
+internal fun classifyBlock(title: String): BuildBlockKind = when {
+        title.contains("5.x") && (title.contains("未开启") || title.contains("支持")) ->
+            BuildBlockKind.TEST_KERNEL_DISABLED
+        title.contains("ABI") || title.contains("冲突") || title.contains("强制指定") ->
+            BuildBlockKind.ABI_CONFLICT
+        title.contains("认不出") || title.contains("无法识别") || title.contains("内核版本") ->
+            BuildBlockKind.UNKNOWN_KERNEL
+        else -> BuildBlockKind.OTHER
+    }
+
+
 
 /** 构建阶段。UI 只需要知道「在忙什么」与「忙完没有」。 */
 enum class PayloadBuildPhase {
@@ -87,6 +155,8 @@ data class PayloadBuildState(
     val sourceSize: Long = 0,
     /** 构建过程的日志（最新的在最后）。 */
     val log: List<String> = emptyList(),
+    /** 被硬拦时的原因类别；非 null 时 UI 应弹阻断框（而不是只标红）。 */
+    val blockedKind: BuildBlockKind? = null,
     /** 结果摘要（多行）。 */
     val summary: String = "",
     /** 结果里的「提示」行（单独拿出来上色）。 */
@@ -198,6 +268,59 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
                     app.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                         ?: error(app.getString(R.string.builder_read_failed))
                 }
+                // ── 构建前：先检查内核版本，再决定用哪套方案 ──────────────
+                // 这一步刻意放在**打补丁之前**：认不出内核版本、或者 5.x 支持没开时，
+                // 应该**零成本**就停下，而不是等把 boot.img 解完、补丁算完才说不行。
+                // （KernelPack 内部还有一道同源硬闸兜底 —— 宁可拦两次，也不能有入口绕过。）
+                val kernelRelease = withContext(Dispatchers.Default) {
+                    val parsed = BootImageParser.parse(bootBytes, KernelDecompressor.default)
+                    parsed.diagnosis?.let { publish("[!] 解析诊断: $it") }
+                    KallsymsFinder(parsed.image, KallsymsOptions()).run().versionNumber
+                }
+                publish(app.getString(R.string.builder_detected_kernel, kernelRelease))
+                val decision = KernelSchemeSelector.select(
+                    kernelRelease = kernelRelease,
+                    allowTestKernel = AppPreferences.allowTestKernel(app),
+                    // 「强制指定」也要在**这里**就参与判定：不一致时零成本停下，
+                    // 而不是等 boot.img 解完、补丁算完才被内部闸门拒绝。
+                    override = AppPreferences.kernelSeriesOverride(app),
+                )
+                publish("[*] " + KernelSchemeSelector.describe(decision))
+                if (decision is KernelSchemeSelector.Decision.Blocked) {
+                    // 前置判定拒绝：不进打包流程，直接把原因给用户
+                    publish("[X] " + decision.title)
+                    decision.detail.forEach { publish("    $it") }
+                    publish("    → " + decision.remedy)
+                    mutableState.value = mutableState.value.copy(
+                        phase = PayloadBuildPhase.Failed,
+                        error = decision.title + " " + decision.remedy,
+                        log = lines.takeLast(MAX_LOG_LINES),
+                        blockedKind = classifyBlock(decision.title),
+                    )
+                    return@launch
+                }
+                val selected = decision as KernelSchemeSelector.Decision.Selected
+                selected.notes.forEach { publish("    $it") }
+
+                // ── 按 (方案, 内核系列) 路由到具体载荷档位 ──
+                // 这是"两个方案 × 两个主线系列"的唯一路由点。取不到就是**真的没有**
+                // 该组合的偏移产物 —— 必须在这里停下并说清楚，绝不能回退到别的系列。
+                val profileId = BaselineRegistry.profileIdFor(scheme.baselineScheme, selected.series)
+                if (profileId == null) {
+                    val msg = "还没有为「${scheme.baselineScheme.label} × 内核 ${selected.series}」" +
+                        "登记偏移产物，本次不打包（不会用别的系列顶替）"
+                    publish("[X] $msg")
+                    publish("    主线需要覆盖 6.6 与 6.12；缺的那一档要拿到**为该内核编译的载荷 .so**")
+                    publish("    或上游对应机型的 target.h 才能登记，不能用别的内核的数值凑。")
+                    mutableState.value = mutableState.value.copy(
+                        phase = PayloadBuildPhase.Failed,
+                        error = msg,
+                        log = lines.takeLast(MAX_LOG_LINES),
+                        blockedKind = BuildBlockKind.BASELINE_NOT_REGISTERED,
+                    )
+                    return@launch
+                }
+
                 val baseLibrary = withContext(Dispatchers.IO) { readBaseLibrary(app, scheme) }
                 publish(
                     app.getString(
@@ -223,7 +346,15 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
                             baseLibrary = baseLibrary,
                             // 显式指定基线：内置两份载荷的 sha256 都在基线表里，
                             // 但显式传入更不容易被"兜底选第一个"的旧逻辑带偏。
-                            baseline = BaselineProfiles.byId(scheme.baselineId),
+                            baseline = BaselineProfiles.byId(profileId),
+                            // 设置页的"强制指定内核系列"与"忽略冲突"：默认 AUTO + 不放行，
+                            // 也就是**默认按实测走、冲突即拒绝**。
+                            seriesOverride = AppPreferences.kernelSeriesOverride(app),
+                            allowAbiMismatch = AppPreferences.allowAbiMismatch(app),
+                            // 「5.x 内核支持（beta）」：关着时闸门会拒绝 5.x 构建并引导去开。
+                            allowTestKernel = AppPreferences.allowTestKernel(app),
+                            // 方案维度也要传：闸门靠它查四元组注册表
+                            scheme = scheme.baselineScheme,
                             log = { publish(it) },
                         ),
                     )
@@ -252,7 +383,15 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
                         log = lines.takeLast(MAX_LOG_LINES),
                         summary = summary,
                         notices = notices,
-                        error = app.getString(R.string.builder_no_output),
+                        // 闸门拒绝时把**具体原因**上屏：gate.blocked 与"没产物"是两回事，
+                        // 混成一句"没有产物"会让用户根本不知道该改什么。
+                        error = (result.gate as? GateDecision.Blocked)?.let { blocked ->
+                            blocked.title + "\n" + blocked.detail.joinToString("\n") { "· $it" } +
+                                "\n\n" + blocked.remedy
+                        } ?: app.getString(R.string.builder_no_output),
+                        // 内部闸门拦下时同样要给出类别，UI 才能弹对应的阻断框
+                        blockedKind = (result.gate as? GateDecision.Blocked)
+                            ?.let { classifyBlock(it.title) },
                     )
                     return@launch
                 }
@@ -367,6 +506,16 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
                 appendLine(app.getString(R.string.builder_patch_absent, report.untouchedKeys.size))
             }
         }
+    }
+
+    /**
+     * 清掉"被拦下"的状态（用户关掉阻断框时调用）。
+     *
+     * 只清 [PayloadBuildState.blockedKind] 与 error，**不动日志** ——
+     * 用户可能正要看日志里那几行原始原因，把日志一起抹掉等于把证据删了。
+     */
+    fun clearBlock() {
+        mutableState.value = mutableState.value.copy(blockedKind = null, error = null)
     }
 
     private fun readBaseLibrary(context: Context, scheme: PayloadScheme): ByteArray {

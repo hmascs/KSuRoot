@@ -1,6 +1,7 @@
 package com.kernelpack
 
 import com.kernelpack.boot.BootImageParser
+import com.kernelpack.boot.KernelDecompressor
 import com.kernelpack.kallsyms.KallsymsFinder
 import com.kernelpack.kallsyms.KallsymsOptions
 import com.kernelpack.model.KernelImageAnalysis
@@ -13,10 +14,14 @@ import com.kernelpack.patch.SharedObjectPatcher
 import com.kernelpack.patch.SpecKind
 import com.kernelpack.profile.BaselineProfile
 import com.kernelpack.profile.BaselineProfiles
+import com.kernelpack.profile.BaselineScheme
 import com.kernelpack.resolve.KernelImage
 import com.kernelpack.resolve.OffsetResolver
 import com.kernelpack.export.OffsetsJson
 import com.kernelpack.export.TargetHeaderWriter
+import com.kernelpack.policy.BuildGate
+import com.kernelpack.policy.GateDecision
+import com.kernelpack.policy.SeriesOverride
 
 /** 打包请求。 */
 class PackRequest(
@@ -27,9 +32,25 @@ class PackRequest(
     /** 指定基线；null = 自动识别。 */
     val baseline: BaselineProfile? = null,
     /** 压缩内核解压钩子；null = 不解压。 */
-    val decompressor: BootImageParser.Decompressor? = BootImageParser.gzipDecompressor,
+    val decompressor: BootImageParser.Decompressor? = KernelDecompressor.default,
     /** 是否连数据段里的 4 字节偏移也一起改（默认关，4 字节容易误伤）。 */
     val patchDataLiterals32: Boolean = false,
+    /** 设置页选择的"强制指定内核系列"。默认按 boot.img 实测走。 */
+    val seriesOverride: SeriesOverride = SeriesOverride.AUTO,
+    /** 用户是否显式打开"忽略冲突"（等价宿主侧 --i-know-what-i-am-doing）。 */
+    val allowAbiMismatch: Boolean = false,
+    /**
+     * 当前方案（通用 / vivo），供闸门查 [com.kernelpack.profile.BaselineRegistry] 用。
+     *
+     * 默认 [BaselineScheme.UNKNOWN]：**未知时闸门会跳过注册表建议** ——
+     * 方案都不知道就去报"基线不匹配"，报出来的多半是假警报。
+     */
+    val scheme: BaselineScheme = BaselineScheme.UNKNOWN,
+    /**
+     * 「5.x 内核支持（beta）」。**默认 false** —— 关着时闸门拒绝 5.x 构建。
+     * 默认值取 false 是刻意的：漏传参数时得到的是安全行为（拒绝未验证的 5.x）。
+     */
+    val allowTestKernel: Boolean = false,
     val log: (String) -> Unit = {},
 )
 
@@ -44,7 +65,11 @@ class PackResult(
     val targetHeader: String,
     val offsetsJson: String,
     val warnings: List<String>,
+    /** 硬闸门结论。非 Proceed 时 [packedLibrary] 一定为 null —— 拒绝构建时不出包。 */
+    val gate: GateDecision = GateDecision.Proceed,
 ) {
+    /** 是否被闸门拒绝（UI 据此弹阻断式对话框）。 */
+    val blocked: Boolean get() = gate is GateDecision.Blocked
     val log: List<String> get() = analysis.log
 
     /** 一句话结论，方便直接丢给界面。 */
@@ -85,13 +110,15 @@ object KernelPack {
     @JvmOverloads
     fun analyze(
         bootImage: ByteArray,
-        decompressor: BootImageParser.Decompressor? = BootImageParser.gzipDecompressor,
+        decompressor: BootImageParser.Decompressor? = KernelDecompressor.default,
         log: (String) -> Unit = {},
     ): KernelImageAnalysis {
         val parsed = BootImageParser.parse(bootImage, decompressor)
         log("[+] 容器: ${parsed.info.container} 版本=${parsed.info.headerVersion ?: "-"} " +
             "page=${parsed.info.pageSize ?: "-"} kernel_off=0x${java.lang.Long.toHexString(parsed.info.kernelOffset.toLong())}")
         log("[+] 内核 Image: ${parsed.image.size} 字节" + if (parsed.info.decompressed) "（已解压）" else "")
+        // 解析失败的具体原因必须上屏：笼统的"找不到 Linux version"会把用户引向错误方向
+        parsed.diagnosis?.let { log("[!] 解析诊断: $it") }
 
         val finder = KallsymsFinder(parsed.image, KallsymsOptions(log = log))
         val r = finder.run()
@@ -175,19 +202,35 @@ object KernelPack {
             unresolved = offsets.filterValues { !it.resolved }.keys.toList(),
         )
 
-        // ABI 档位 vs 实际内核版本
-        val seriesOfKernel = analysis.versionNumber.split('.').take(2).joinToString(".")
-        baseline?.abi?.let { abi ->
-            if (abi.kernelSeries != seriesOfKernel) {
-                warnings.add(
-                    "基线 ABI 档位是 GKI ${abi.kernelSeries}，而 boot.img 内核是 $seriesOfKernel；" +
-                        "结构体字段偏移可能不适用，基础 .so 需要换用对应 GKI 版本编译的那一份"
-                )
-            }
-        }
-
         val header = TargetHeaderWriter.write(profile)
         val json = OffsetsJson.write(profile)
+
+        // ===== 硬闸门（P1）=====
+        // 原来这里只是 warnings.add(...) 一句提示。但"提示"挡不住用户继续点构建 ——
+        // 实测出现过「需要改写 25 项 · 校验通过 12 项」照样出包的情况：那是拿内核内存去赌。
+        // 现在改为：不匹配就**拒绝打包**，除非用户在设置里显式打开"忽略冲突"。
+        val gate = BuildGate.evaluate(
+            kernelRelease = analysis.versionNumber,
+            baselineAbiSeries = baseline?.abi?.kernelSeries,
+            override = request.seriesOverride,
+            allowMismatch = request.allowAbiMismatch,
+            // 任务1：把方案与档位 id 一起带进去，闸门才能查四元组注册表
+            scheme = request.scheme,
+            profileId = baseline?.id,
+            allowTestKernel = request.allowTestKernel,
+        )
+        when (gate) {
+            is GateDecision.Blocked -> {
+                log("[X] ${gate.title}")
+                gate.detail.forEach { log("    $it") }
+                log("    → ${gate.remedy}")
+                return PackResult(
+                    analysis, profile, null, null, baseline, header, json, warnings, gate,
+                )
+            }
+            is GateDecision.ProceedWithWarning -> gate.notes.forEach { warnings.add(it) }
+            GateDecision.Proceed -> Unit
+        }
 
         if (request.baseLibrary == null) {
             return PackResult(analysis, profile, null, null, baseline, header, json, warnings)

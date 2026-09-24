@@ -21,6 +21,24 @@
     <string name="github_card_description">查看源代码和使用方法。</string>
     <string name="action_continue">忽略并继续</string><string name="action_next">下一步</string>
     <string name="advanced">高级</string><string name="advanced_mode">高级模式</string><string name="advanced_mode_description">安装时手动选择设备兼容 payload</string>
+    <string name="exploit_summary_rooting">正在提升权限至 root</string>
+    <string name="exploit_summary_prepare">正在准备本地载荷</string>
+    <string name="exploit_summary_fixed_so">支持配置：固定 SO</string>
+    <string name="exploit_summary_bundled">使用内置动态库</string>
+    <string name="exploit_summary_loading">加载载荷</string>
+    <string name="exploit_summary_preload_start">预加载启动</string>
+    <string name="exploit_summary_startup_context">初始上下文</string>
+    <string name="exploit_summary_startup_limits">初始限制</string>
+    <string name="exploit_summary_p0_profile">p0 画像</string>
+    <string name="exploit_summary_child_route">子进程路由</string>
+    <string name="exploit_summary_pselect_probe">pselect 探测</string>
+    <string name="exploit_summary_bootid_leak">泄露 boot_id</string>
+    <string name="exploit_summary_stext">推导 stext</string>
+    <string name="exploit_summary_kaslr">KASLR 通过</string>
+    <string name="exploit_summary_pselect_ok">pselect 成功</string>
+    <string name="exploit_summary_cfi">获取 CFI 读写权限</string>
+    <string name="exploit_summary_cfi_retry">CFI 绕过失败，重试中</string>
+    <string name="exploit_summary_failed">安装失败</string>
     <string name="shizuku_mode">使用 Shizuku</string><string name="shizuku_mode_description">使用 Shizuku 运行 payload，可能提高可靠性。</string><string name="shizuku_not_running_title">Shizuku 未在运行</string><string name="shizuku_not_running_body">请先通过 adb 或 root 启动 Shizuku 服务，并授予此应用权限，然后启用该选项。</string><string name="action_download_shizuku">下载 Shizuku</string><string name="error_shizuku_unavailable">Shizuku 未在运行，请先通过 adb 或 root 启动 Shizuku。</string><string name="error_shizuku_permission">未授予 Shizuku 权限</string><string name="error_shizuku_stage">无法通过 Shizuku 部署 %1$s：%2$s</string><string name="log_shizuku_prepare">[*] 正在准备 Shizuku 执行</string><string name="log_shizuku_permission">[+] 已授予 Shizuku 权限</string>
     <string name="repo_profile_missing">支持配置 %1$s 已不可用</string>
     <string name="select_device_title">选择支持的 payload</string><string name="select_device_description">按设备型号和内核版本选择 payload。</string><string name="show_my_device_only">仅显示我的设备</string><string name="no_matching_devices">没有与此型号和内核版本匹配的 payload。</string>
@@ -41,15 +59,16 @@
     <string name="history_shizuku_not_used">未使用 Shizuku</string>
     <string name="custom_payload_title">自定义动态库</string>
     <string name="custom_payload_description">选择 CVE-2026-43499 提权使用的动态库。导入的动态库将作为一体化载荷直接运行。</string>
-    <string name="payload_source_online">官方在线源</string>
-    <string name="payload_source_online_detail">三星手机可用，按设备型号与内核版本匹配下载</string>
-    <string name="payload_source_bundled">内置动态库（libbs.so）</string>
-    <string name="payload_source_bundled_detail">iQOO 骁龙八至尊手机可用，分支内置的一体化提权载荷</string>
+    <string name="payload_source_bundled">内置提权载荷</string>
+    <string name="payload_source_bundled_detail">随包内置的小米 / vivo / iQOO 载荷，按机型与内核构建自动匹配，无需联网</string>
     <string name="payload_detail_action">查看支持机型</string>
-    <string name="payload_detail_online_title">官方在线源 · 支持的三星机型</string>
-    <string name="payload_detail_online_note">同步自 Root-My-Galaxy 官方载荷清单（2026 年 8 月）。内核版本必须完全一致才可匹配。</string>
-    <string name="payload_detail_bundled_title">内置动态库 · 支持的 iQOO 机型</string>
-    <string name="payload_detail_bundled_note">以下机型均搭载骁龙 8 至尊版平台。</string>
+    <string name="payload_detail_bundled_title">内置提权载荷 · 覆盖机型</string>
+    <string name="payload_detail_bundled_note">下列载荷全部随 APK 分发，在本机按机型与内核构建匹配。标注了多个内核版本的机型表示每个构建都有对应的一份。</string>
+    <string name="payload_detail_pick_hint">点一下载荷即可指定本次使用哪一份；全部不选表示仍按机型自动匹配。</string>
+    <string name="payload_detail_selected">当前指定：%1$s</string>
+    <string name="payload_detail_recommended">本机推荐</string>
+    <string name="install_confirm_manual_payload">将使用载荷：%1$s（由你手动指定）</string>
+    <string name="log_manual_payload">手动指定载荷：%1$s（并非 %2$s 的自动匹配结果）</string>
     <string name="payload_detail_kernel_format">内核 %1$s</string>
     <string name="chip_snapdragon_8_elite">骁龙 8 至尊版</string>
     <string name="payload_source_custom">自定义导入</string>
@@ -64,11 +83,14 @@
     <string name="custom_sha_format">SHA-256：%1$s</string>
     <string name="error_bundled_missing">内置动态库缺失</string>
     <string name="log_custom_payload">使用自定义动态库：%1$s</string>
-    <string name="log_bundled_payload">使用内置动态库：libbs.so</string>
-    <string name="log_custom_missing_fallback">自定义动态库不存在，回退到官方在线源</string>
+    <string name="log_bundled_payload">使用内置载荷：%1$s</string>
+    <string name="error_device_unsupported">内置载荷没有覆盖 %1$s。请导入自定义动态库，或从载荷列表中手动选择一份可能可用的。</string>
+    <string name="log_match_similar_device">本机型没有登记的载荷，回退到 %1$s（与 %2$s 同厂商、同内核分支）—— 可能可用</string>
+    <string name="log_match_same_kernel">内核构建 %1$s 未精确登记，使用同版本的相邻构建 —— 可能可用</string>
+    <string name="log_custom_missing_fallback">自定义动态库已丢失，回退到内置载荷</string>
     <string name="log_local_ready">已启用本地载荷：%1$s</string>
     <string name="status_local_preparing">正在准备本地载荷…</string>
-    <string name="activation_hint_title">基于 Root-My-Galaxy 三星</string>
+    <string name="activation_hint_title">CVE-2026-43499 一键提权</string>
     <string name="activation_hint_body">Mod By hmascs，可正常使用全部功能</string>
 
     <string name="nav_builder">载荷构建</string>
@@ -141,4 +163,46 @@
     <string name="log_copy_failed">复制日志失败</string>
     <string name="log_saved">日志已保存</string>
     <string name="log_save_failed">保存日志失败</string>
+    <string name="test_kernel_switch">5.x 内核支持（beta）</string>
+    <string name="test_kernel_switch_description">识别到 5.x 内核时采用五系方案（未验证）</string>
+    <string name="test_kernel_blocked_title">识别到 5.x 内核，但该支持未开启</string>
+    <string name="root_handoff_sheet_title">选择 Root 管理器</string>
+    <string name="root_handoff_sheet_subtitle">载荷拿到的 root 只活在当前进程里。想在重启后继续可用，必须把它移交给一个 Root 管理器。</string>
+    <string name="root_handoff_ksu_desc">标准 KernelSU。已装 KernelSU（包名 me.weishu.kernelsu）就选这个。</string>
+    <string name="root_handoff_sukisu_desc">SukiSU Ultra。已装 SukiSU Ultra（包名 com.sukisu.ultra）就选这个。</string>
+    <string name="root_handoff_confirm_title">已获取 root，是否移交？</string>
+    <string name="root_handoff_confirm_body">本应用当前已拿到 root。这个 root 只存在于当前进程，进程结束就没了。移交给 Root 管理器（KernelSU / SukiSU Ultra）才能让它常驻。此操作需要 root，会执行一条 late-load 命令。</string>
+    <string name="root_handoff_confirm_go">选择管理器</string>
+    <string name="root_handoff_not_now">暂不移交</string>
+    <string name="root_handoff_result_title">移交结果</string>
+    <string name="root_handoff_running">正在移交给 %1$s…</string>
+    <string name="root_handoff_card_title">移交 root</string>
+    <string name="root_handoff_card_status_checking">正在检测 root 权限…</string>
+    <string name="root_handoff_card_status_none">未检测到 root。请先在上方跑一次载荷拿到 root，之后回到这里移交给 Root 管理器。</string>
+    <string name="root_handoff_card_status_ready">已获取 root。交给 Root 管理器后，root 才能在重启后继续可用。</string>
+    <string name="root_handoff_card_action">选择管理器并移交</string>
+    <string name="root_handoff_card_action_disabled">暂不可移交</string>
+    <string name="builder_detected_kernel">实测内核：%1$s</string>
+    <string name="root_handoff_running_body">正在执行 late-load 命令。可能会弹出 root 授权框，请点允许。</string>
+    <string name="kernelsu_card_title">KernelSU</string>
+    <string name="language_korean" translatable="false">한국어</string>
+    <string name="language_english" translatable="false">English</string>
+    <string name="language_japanese" translatable="false">日本語</string>
+    <string name="language_chinese" translatable="false">简体中文</string>
+    <string name="language_chinese_traditional" translatable="false">繁體中文</string>
+    <string name="language_turkish" translatable="false">Türkçe</string>
+    <string name="language_russian" translatable="false">Русский</string>
+    <string name="language_vietnamese" translatable="false">Tiếng Việt</string>
+    <string name="payload_note_libbs">release v1.3.0，vivo/iQOO 专用分支，多一条 vr.ko 反 root 绕过</string>
+    <string name="payload_note_rollback_6689">6.6.89 上游回归内置 libbs.so，此份为提权文件中的重打包版本，仅作回退</string>
+    <string name="payload_note_share_sixmodels">与 vivo X200 等六款机型共用同一份二进制</string>
+    <string name="payload_note_sixmodels_fallback">六款机型通用一份；同二进制已在 iQOO Z10 Turbo+ 6.6.57 下登记，此处保留为跨机型回退入口</string>
+    <string name="payload_note_share_three">三机型共用一份，需在载荷选择列表里手动选用</string>
+    <string name="payload_note_dedup_four">4 份文件同一 sha256，去重后保留一份；需在载荷列表手动选用</string>
+    <string name="payload_note_dedup_three">3 份文件同一 sha256，去重后保留一份；需在载荷列表手动选用</string>
+    <string name="payload_note_dedup_two">2 份文件同一 sha256，去重后保留一份；需在载荷列表手动选用</string>
+    <string name="payload_note_pie_exec">PIE 可执行（非 .so），与其它载荷调用方式不同，需在载荷列表手动选用</string>
+    <string name="payload_note_exec_8g2">1.8 MB，独立可执行载荷，需在载荷列表手动选用</string>
+    <string name="payload_note_exec_mt6895">4.9 MB，按内核版本后三位传参，需在载荷列表手动选用</string>
+    <string name="device_security_patch">Android 安全补丁</string>
 </resources>
