@@ -767,10 +767,15 @@ object BundledPayloadCatalog {
      * 为什么不用正则：`+` 在正则里是量词。`iqoo neo10 pro+` 会变成"pro 重复一次以上"，
      * 于是 "Neo10 Pro" 也被算命中 —— 恰恰是我们想区分的两款机器。全词切分天然免疫。
      */
-    private fun matchesModel(keywordGroups: List<String>, model: String): Boolean {
-        val haystack = model.split(MODEL_SEPARATOR).filter(String::isNotEmpty)
+    internal fun matchesModel(keywordGroups: List<String>, model: String): Boolean {
+        // [勘误 2026-09-24] 必须**两侧都小写、都用同一个分隔符切**。
+        // 原来只切 `group.split(' ')` 且不转小写，而 MODEL_SEPARATOR 的字符类是
+        // `[^a-z0-9+\-]`（**只认小写**）—— 于是 `displayName = "iQOO 13"` 里的
+        // "iQOO" 永远匹配不上小写 haystack，displayName 那条路是**死代码**。
+        val haystack = model.lowercase().split(MODEL_SEPARATOR).filter(String::isNotEmpty)
         return keywordGroups.any { group ->
-            group.split(' ').all { it.isNotEmpty() && it in haystack }
+            val words = group.lowercase().split(MODEL_SEPARATOR).filter(String::isNotEmpty)
+            words.isNotEmpty() && words.all { it in haystack }
         }
     }
 
