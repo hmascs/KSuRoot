@@ -86,6 +86,11 @@ android {
         jniLibs.keepDebugSymbols += "**/libionstack.so"
         // 同理还有执行载荷的 helper：它也是第三方预编译二进制。
         jniLibs.keepDebugSymbols += "**/libcve43499root.so"
+        // 随包内置的厂商载荷（Xiaomi / vivo 各机型 × 各内核版本，共 38 份）。
+        // 它们全部是**别人编译好的二进制**，靠编译期常量寻址内核符号：
+        // 一旦被 strip，符号表与常量布局都会变，映射表里登记的 sha256 立刻失配，
+        // 设备就再也匹配不到自己那一份。统一通配保护，避免逐个枚举漏项。
+        jniLibs.keepDebugSymbols += "**/libksu_*.so"
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
 }

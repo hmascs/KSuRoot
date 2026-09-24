@@ -134,7 +134,7 @@
     <string name="about">Hakkında</string>
     <string name="about_title">Root My Galaxy Hakkında</string>
     <string name="about_description">Root My Galaxy hakkında</string>
-    <string name="about_body">Desteklenen Samsung Galaxy cihazlarını çekirdek açığı kullanarak tek tıkla root eden yükleyicidir.</string>
+    <string name="about_body">Çekirdek açığını kullanarak desteklenen cihazı tek tıkla KernelSU ile root eden yükleyicidir.</string>
     <string name="history_payload">Payload: %1$s</string>
     <string name="export_log">Günlüğü dışa aktar</string>
     <string name="export_log_saved">Günlük kaydedildi</string>
@@ -165,4 +165,20 @@
     <string name="root_handoff_card_action_disabled">Not available yet</string>
     <string name="builder_detected_kernel">Detected kernel: %1$s</string>
     <string name="root_handoff_running_body">Running the late-load command. A root authorization prompt may appear - please confirm it.</string>
+    <string name="payload_note_libbs">release v1.3.0, vivo/iQOO dalı, bir adet vr.ko anti-root atlatması ekler</string>
+<string name="payload_note_rollback_6689">6.6.89 sürümünde üst akış yerleşik libbs.so\'ya döndü; bu, exploit paketinden yeniden paketlenmiş bir kopyadır ve yalnızca yedek olarak tutulur</string>
+    <string name="payload_note_share_sixmodels">vivo X200 dahil altı modelle aynı ikili dosyayı paylaşır</string>
+    <string name="payload_note_sixmodels_fallback">Tek ikili dosya altı modeli kapsar; aynı ikili dosya iQOO Z10 Turbo+ 6.6.57 altında zaten kayıtlı, burada modeller arası yedek olarak tutuluyor</string>
+    <string name="payload_note_share_three">Üç model tek ikili dosyayı paylaşır; payload listesinden elle seçin</string>
+    <string name="payload_note_dedup_four">Dört dosya aynı sha256 değerine sahip; tek kopyaya indirgendi — payload listesinden elle seçin</string>
+    <string name="payload_note_dedup_three">Üç dosya aynı sha256 değerine sahip; tek kopyaya indirgendi — payload listesinden elle seçin</string>
+    <string name="payload_note_dedup_two">İki dosya aynı sha256 değerine sahip; tek kopyaya indirgendi — payload listesinden elle seçin</string>
+<string name="payload_note_pie_exec">PIE yürütülebilir dosyası (.so değil); diğer payload\'lardan farklı çağrılır — listeden elle seçin</string>
+    <string name="payload_note_exec_8g2">1,8 MB bağımsız yürütülebilir payload; payload listesinden elle seçin</string>
+    <string name="payload_detail_pick_hint">Bu çalıştırmada kullanılacak yükü seçmek için üzerine dokunun. Hiçbiri seçilmezse cihaza göre otomatik eşleşme sürer.</string>
+    <string name="payload_detail_selected">Şu an seçili: %1$s</string>
+    <string name="payload_detail_recommended">Bu cihaz için önerilir</string>
+    <string name="install_confirm_manual_payload">Kullanılacak yük: %1$s (sizin seçiminiz)</string>
+    <string name="log_manual_payload">Elle seçilen yük: %1$s (%2$s için otomatik eşleşme sonucu değil)</string>
+    <string name="payload_note_exec_mt6895">4,9 MB; çekirdek sürümünün son üç hanesini argüman olarak alır — payload listesinden elle seçin</string>
 </resources>

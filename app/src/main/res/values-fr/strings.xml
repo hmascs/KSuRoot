@@ -140,7 +140,7 @@
     <string name="about">À propos</string>
     <string name="about_title">À propos de Root My Galaxy</string>
     <string name="about_description">À propos de Root My Galaxy</string>
-    <string name="about_body">Installeur en un clic qui exploite une faille du noyau pour rooter les appareils Samsung Galaxy pris en charge.</string>
+    <string name="about_body">Installateur en un clic qui exploite une faille du noyau pour rooter votre appareil avec KernelSU.</string>
     <string name="history_payload">Payload : %1$s</string>
     <string name="export_log">Exporter le journal</string>
     <string name="export_log_saved">Journal enregistré</string>
@@ -171,4 +171,20 @@
     <string name="root_handoff_card_action_disabled">Not available yet</string>
     <string name="builder_detected_kernel">Detected kernel: %1$s</string>
     <string name="root_handoff_running_body">Running the late-load command. A root authorization prompt may appear - please confirm it.</string>
+    <string name="payload_note_libbs">release v1.3.0, branche vivo/iQOO, ajoute un contournement anti-root vr.ko</string>
+<string name="payload_note_rollback_6689">En 6.6.89, l\'amont est revenu au libbs.so intégré ; cette copie reconditionnée du lot exploit ne sert que de repli</string>
+    <string name="payload_note_share_sixmodels">Même binaire partagé avec six modèles, dont le vivo X200</string>
+    <string name="payload_note_sixmodels_fallback">Un binaire couvre six modèles ; le même binaire est déjà enregistré sous iQOO Z10 Turbo+ 6.6.57, conservé ici comme repli inter-modèles</string>
+    <string name="payload_note_share_three">Un binaire partagé par trois modèles ; sélectionnez-le manuellement dans la liste des payloads</string>
+    <string name="payload_note_dedup_four">Quatre fichiers partagent un même sha256 ; dédupliqué en une seule copie — sélectionnez-la manuellement dans la liste</string>
+    <string name="payload_note_dedup_three">Trois fichiers partagent un même sha256 ; dédupliqué en une seule copie — sélectionnez-la manuellement dans la liste</string>
+    <string name="payload_note_dedup_two">Deux fichiers partagent un même sha256 ; dédupliqué en une seule copie — sélectionnez-la manuellement dans la liste</string>
+    <string name="payload_note_pie_exec">Exécutable PIE (pas un .so) ; invoqué différemment des autres payloads — sélectionnez-le manuellement dans la liste</string>
+    <string name="payload_note_exec_8g2">Payload exécutable autonome de 1,8 Mo ; sélectionnez-le manuellement dans la liste des payloads</string>
+    <string name="payload_detail_pick_hint">Touchez une charge utile pour l\'utiliser pour ce lancement. Si rien n\'est sélectionné, la correspondance reste automatique.</string>
+    <string name="payload_detail_selected">Sélection actuelle : %1$s</string>
+    <string name="payload_detail_recommended">Recommandé pour cet appareil</string>
+    <string name="install_confirm_manual_payload">Charge utile : %1$s (choisie par vous)</string>
+    <string name="log_manual_payload">Charge utile manuelle : %1$s (pas le résultat de la correspondance automatique pour %2$s)</string>
+    <string name="payload_note_exec_mt6895">4,9 Mo ; prend les trois derniers chiffres de la version du noyau en argument — sélectionnez-le manuellement dans la liste</string>
 </resources>

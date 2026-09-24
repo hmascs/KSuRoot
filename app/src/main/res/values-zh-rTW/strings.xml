@@ -4,6 +4,16 @@
     <string name="nav_overview">首頁</string>
     <string name="nav_history">執行紀錄</string>
     <string name="nav_settings">設定</string>
+    <string name="payload_source_bundled">內建提權載荷</string>
+    <string name="payload_source_bundled_detail">隨包內建的小米 / vivo / iQOO 載荷，依機型與核心建置自動匹配，無需連網</string>
+    <string name="payload_detail_bundled_title">內建提權載荷 · 涵蓋機型</string>
+    <string name="payload_detail_bundled_note">下列載荷全部隨 APK 分發，在本機依機型與核心建置匹配。標註了多個核心版本的機型表示每個建置都有對應的一份。</string>
+    <string name="log_bundled_payload">使用內建載荷：%1$s</string>
+    <string name="log_match_same_kernel">核心建置 %1$s 未精確登記，使用同版本的相鄰建置 —— 可能可用</string>
+    <string name="log_match_similar_device">本機型沒有登記的載荷，回退到 %1$s（與 %2$s 同廠商、同核心分支）—— 可能可用</string>
+    <string name="error_device_unsupported">內建載荷沒有涵蓋 %1$s。請匯入自訂動態庫，或從載荷清單中手動選擇一份可能可用的。</string>
+    <string name="log_custom_missing_fallback">自訂動態庫已遺失，回退到內建載荷</string>
+    <string name="activation_hint_title">CVE-2026-43499 一鍵提權</string>
 
     <string name="install_confirm_title">安裝 KernelSU？</string>
     <string name="install_confirm_body">應用程式將驗證支援設定檔，然後從 GitHub 下載並執行 exploit 與 KernelSU payload。</string>
@@ -129,6 +139,26 @@
     <string name="advanced">進階</string>
     <string name="advanced_mode">進階模式</string>
     <string name="advanced_mode_description">安裝時手動選擇裝置相容的 payload</string>
+    <string name="log_detailed">日誌詳細顯示</string>
+    <string name="log_detailed_description">逐條顯示翻譯後的提權步驟。關閉後只顯示關鍵節點，介面更簡潔。</string>
+    <string name="exploit_summary_rooting">正在提升權限至 root</string>
+    <string name="exploit_summary_prepare">正在準備本地載荷</string>
+    <string name="exploit_summary_fixed_so">支援設定：固定 SO</string>
+    <string name="exploit_summary_bundled">使用內建動態庫</string>
+    <string name="exploit_summary_loading">載入載荷</string>
+    <string name="exploit_summary_preload_start">預載入啟動</string>
+    <string name="exploit_summary_startup_context">初始上下文</string>
+    <string name="exploit_summary_startup_limits">初始限制</string>
+    <string name="exploit_summary_p0_profile">p0 畫像</string>
+    <string name="exploit_summary_child_route">子進程路由</string>
+    <string name="exploit_summary_pselect_probe">pselect 探測</string>
+    <string name="exploit_summary_bootid_leak">洩露 boot_id</string>
+    <string name="exploit_summary_stext">推導 stext</string>
+    <string name="exploit_summary_kaslr">KASLR 通過</string>
+    <string name="exploit_summary_pselect_ok">pselect 成功</string>
+    <string name="exploit_summary_cfi">取得 CFI 讀寫權限</string>
+    <string name="exploit_summary_cfi_retry">CFI 繞過失敗，重試中</string>
+    <string name="exploit_summary_failed">安裝失敗</string>
     <string name="shizuku_mode">使用 Shizuku</string>
     <string name="shizuku_mode_description">使用 Shizuku 執行 payload，可能提高可靠性。</string>
     <string name="shizuku_not_running_title">Shizuku 未在執行</string>
@@ -257,4 +287,49 @@
     <string name="root_handoff_card_action_disabled">暫不可移交</string>
     <string name="builder_detected_kernel">偵測到核心：%1$s</string>
     <string name="root_handoff_running_body">正在執行 late-load 命令。可能會彈出 root 授權框，請點允許。</string>
+    <string name="kernelsu_card_title">KernelSU</string>
+    <string name="language_korean" translatable="false">한국어</string>
+    <string name="language_english" translatable="false">English</string>
+    <string name="language_japanese" translatable="false">日本語</string>
+    <string name="language_chinese" translatable="false">简体中文</string>
+    <string name="language_chinese_traditional" translatable="false">繁體中文</string>
+    <string name="language_turkish" translatable="false">Türkçe</string>
+    <string name="language_russian" translatable="false">Русский</string>
+    <string name="language_vietnamese" translatable="false">Tiếng Việt</string>
+    <string name="custom_payload_title">自訂動態庫</string>
+    <string name="custom_payload_description">選擇 CVE-2026-43499 提權鏈要使用的動態庫。可匯入為其他機型／核心版本編譯的載荷。</string>
+    <string name="payload_detail_action">檢視支援機型</string>
+    <string name="payload_detail_pick_hint">點一下載荷即可指定本次使用哪一份；全部不選表示仍依機型自動匹配。</string>
+    <string name="payload_detail_selected">目前指定：%1$s</string>
+    <string name="payload_detail_recommended">本機推薦</string>
+    <string name="install_confirm_manual_payload">將使用載荷：%1$s（由你手動指定）</string>
+    <string name="log_manual_payload">手動指定載荷：%1$s（並非 %2$s 的自動匹配結果）</string>
+    <string name="payload_detail_kernel_format">核心 %1$s</string>
+    <string name="chip_snapdragon_8_elite">驍龍 8 至尊版</string>
+    <string name="payload_source_custom">自訂匯入</string>
+    <string name="custom_import_action">匯入動態庫</string>
+    <string name="custom_remove_action">移除</string>
+    <string name="custom_none">尚未匯入動態庫</string>
+    <string name="custom_import_success">已匯入 %1$s</string>
+    <string name="custom_import_failed">匯入失敗</string>
+    <string name="custom_import_invalid">所選檔案不是有效的 ELF 動態庫</string>
+    <string name="custom_removed">已移除自訂動態庫</string>
+    <string name="custom_meta_format">%1$s · %2$s</string>
+    <string name="custom_sha_format">SHA-256: %1$s</string>
+    <string name="error_bundled_missing">內建動態庫缺失</string>
+    <string name="log_custom_payload">使用自訂動態庫：%1$s</string>
+    <string name="log_local_ready">本機載荷已就緒：%1$s</string>
+    <string name="status_local_preparing">正在準備本機載荷…</string>
+    <string name="activation_hint_body">由 hmascs 修改。所有功能均可直接使用。</string>
+    <string name="payload_note_libbs">release v1.3.0，vivo/iQOO 專用分支，多一條 vr.ko 反 root 繞過</string>
+    <string name="payload_note_rollback_6689">6.6.89 上游回歸內建 libbs.so，此份為提權檔案中的重打包版本，僅作回退</string>
+    <string name="payload_note_share_sixmodels">與 vivo X200 等六款機型共用同一份二進位檔</string>
+    <string name="payload_note_sixmodels_fallback">六款機型通用一份；同二進位檔已在 iQOO Z10 Turbo+ 6.6.57 下登記，此處保留為跨機型回退入口</string>
+    <string name="payload_note_share_three">三機型共用一份，需在載荷選擇清單裡手動選用</string>
+    <string name="payload_note_dedup_four">4 份檔案同一 sha256，去重後保留一份；需在載荷清單手動選用</string>
+    <string name="payload_note_dedup_three">3 份檔案同一 sha256，去重後保留一份；需在載荷清單手動選用</string>
+    <string name="payload_note_dedup_two">2 份檔案同一 sha256，去重後保留一份；需在載荷清單手動選用</string>
+    <string name="payload_note_pie_exec">PIE 可執行檔（非 .so），與其它載荷呼叫方式不同，需在載荷清單手動選用</string>
+    <string name="payload_note_exec_8g2">1.8 MB，獨立可執行載荷，需在載荷清單手動選用</string>
+    <string name="payload_note_exec_mt6895">4.9 MB，按核心版本後三位傳參，需在載荷清單手動選用</string>
 </resources>

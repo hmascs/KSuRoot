@@ -15,13 +15,16 @@ import androidx.activity.viewModels
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -53,14 +56,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.Article
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Code
+import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.ContentCopy
-import androidx.compose.material.icons.rounded.BrightnessAuto
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.BuildCircle
-import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.FolderOpen
@@ -68,7 +71,6 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
-import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Palette
@@ -78,12 +80,6 @@ import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material.icons.rounded.Warning
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonGroupDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -99,7 +95,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -136,7 +131,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
-import androidx.compose.ui.window.DialogWindowProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ting.root.ui.glass.AppBackground
 import com.ting.root.ui.glass.GlassNavBarContent
@@ -146,18 +140,26 @@ import com.ting.root.ui.glass.LocalGlassBackdrop
 import com.ting.root.ui.glass.glassNavBar
 import com.ting.root.ui.theme.AppMotion
 import com.ting.root.ui.theme.RootMyGalaxyTheme
+import com.ting.root.ui.theme.Spacing
 import com.ting.root.ui.theme.staggeredEntry
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
 import top.yukonga.miuix.kmp.basic.RadioButton
 import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.TabRow
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTopAppBar
 import top.yukonga.miuix.kmp.basic.Switch
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -185,6 +187,7 @@ class MainActivity : ComponentActivity() {
     private var shizukuMode by mutableStateOf(false)
     /** 「5.x 内核支持（beta）」—— 默认关，关着时识别到 5.x 不采用五系方案。 */
     private var allowTestKernel by mutableStateOf(false)
+    private var logDetailed by mutableStateOf(true)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -194,6 +197,7 @@ class MainActivity : ComponentActivity() {
         advancedMode = AppPreferences.advancedMode(this)
         shizukuMode = AppPreferences.shizukuMode(this)
         allowTestKernel = AppPreferences.allowTestKernel(this)
+        logDetailed = AppPreferences.logDetailed(this)
         setContent {
             RootMyGalaxyTheme(accentColor = accentColor, themeMode = themeMode) {
                 RootApp(
@@ -204,6 +208,7 @@ class MainActivity : ComponentActivity() {
                     advancedMode = advancedMode,
                     shizukuMode = shizukuMode,
                     allowTestKernel = allowTestKernel,
+                    logDetailed = logDetailed,
                     onAccentColorChanged = { color ->
                         AppPreferences.setAccentColor(this, color)
                         accentColor = color
@@ -225,10 +230,20 @@ class MainActivity : ComponentActivity() {
                         allowTestKernel = enabled
                     },
                     openInstaller = { profileId ->
+                    onLogDetailedChanged = { enabled ->
+                        AppPreferences.setLogDetailed(this, enabled)
+                        logDetailed = enabled
+                    },
+                    openInstaller = { bundledLibrary ->
                         val installer = Intent(this, InstallActivity::class.java)
                             .putExtra(InstallActivity.EXTRA_INSTALL_REQUEST_ID, UUID.randomUUID().toString())
-                        if (profileId != null) {
-                            installer.putExtra(InstallActivity.EXTRA_PROFILE_ID, profileId)
+                        // 只有用户手动指定了载荷才带上这个 extra；
+                        // 不带时 InstallViewModel 走按设备自动匹配的老路径。
+                        if (!bundledLibrary.isNullOrBlank()) {
+                            installer.putExtra(
+                                InstallActivity.EXTRA_BUNDLED_LIBRARY,
+                                bundledLibrary,
+                            )
                         }
                         startActivity(installer)
                     },
@@ -286,11 +301,6 @@ private enum class AppPage(@StringRes val label: Int, val icon: ImageVector) {
 
 private data class LanguageOption(@StringRes val label: Int, val tag: String)
 
-private enum class CompatibilityWarning {
-    Device,
-    KernelVersion,
-}
-
 private val languageOptions = listOf(
     LanguageOption(R.string.language_system, ""),
     LanguageOption(R.string.language_korean, "ko"),
@@ -341,28 +351,30 @@ private fun RootApp(
     shizukuMode: Boolean,
     /** 「5.x 内核支持（beta）」开关当前值；同时决定载荷构建能不能走五系方案。 */
     allowTestKernel: Boolean,
+    logDetailed: Boolean,
     onAccentColorChanged: (AccentColor) -> Unit,
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onAdvancedModeChanged: (Boolean) -> Unit,
     onShizukuModeChanged: (Boolean) -> Unit,
     onAllowTestKernelChanged: (Boolean) -> Unit,
+    onLogDetailedChanged: (Boolean) -> Unit,
     openInstaller: (String?) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val installState by installViewModel.state.collectAsStateWithLifecycle()
     val history by installViewModel.history.collectAsStateWithLifecycle()
-    val targetCatalog by installViewModel.targetCatalog.collectAsStateWithLifecycle()
     val buildState by builderViewModel.state.collectAsStateWithLifecycle()
     var selectedPage by remember { mutableStateOf(AppPage.Overview) }
     var showInstallConfirmation by remember { mutableStateOf(false) }
-    var showTargetPicker by remember { mutableStateOf(false) }
-    var selectedProfile by remember { mutableStateOf<TargetProfile?>(null) }
-    var compatibilityWarning by remember { mutableStateOf<CompatibilityWarning?>(null) }
     // 内核低于 6.6：按安装前先提示"免 ADB 这条路走不通"。
     var kernelTooOld by remember { mutableStateOf(false) }
     var payloadSource by remember { mutableStateOf(AppPreferences.payloadSource(context)) }
     var customPayload by remember { mutableStateOf(CustomPayloadStore.current(context)) }
+    // 用户在机型清单里手动点选的载荷（`jniLibs` 文件名）。`null` = 不指定，按设备自动匹配。
+    // 只活在这一次界面会话里，不落盘 —— 它是"这次就用这份"的一次性决定，
+    // 存起来反而会在换机/换库之后变成一颗埋着的雷。
+    var manualPayload by remember { mutableStateOf<String?>(null) }
     val device = remember { DeviceSnapshot.current() }
 
     // backdrop 的采集源（底栏与滑块的模糊 + 折射用）。
@@ -383,15 +395,6 @@ private fun RootApp(
 
     // 点「开始构建」先弹方案选择（从下往上），选完才真正开跑。
     var showSchemeSheet by remember { mutableStateOf(false) }
-    if (showSchemeSheet) {
-        PayloadSchemeSheet(
-            onDismiss = { showSchemeSheet = false },
-            onPick = { scheme ->
-                showSchemeSheet = false
-                builderViewModel.build(scheme)
-            },
-        )
-    }
 
     // ── 移交 root ──────────────────────────────────────────────────────
     // 三态：null = 还没检测完 / false = 没有 root / true = 有 root。
@@ -561,147 +564,6 @@ private fun RootApp(
         }
     }
 
-    if (kernelTooOld) {
-        KernelTooOldDialog(
-            kernelVersion = device.kernelVersion,
-            onDismiss = { kernelTooOld = false },
-            onContinue = {
-                kernelTooOld = false
-                selectedProfile = null
-                if (advancedMode && payloadSource == PayloadSource.Online) {
-                    showTargetPicker = true
-                    installViewModel.loadTargetCatalog()
-                } else {
-                    showInstallConfirmation = true
-                }
-            },
-        )
-    }
-
-    if (showTargetPicker) {
-        TargetSelectionSheet(
-            device = device,
-            catalog = targetCatalog,
-            onDismiss = { showTargetPicker = false },
-            onRetry = installViewModel::loadTargetCatalog,
-            onNext = { profile ->
-                selectedProfile = profile
-                showTargetPicker = false
-                compatibilityWarning = when {
-                    !profile.matchesDevice(device) -> CompatibilityWarning.Device
-                    !profile.matchesKernelVersion(device) -> CompatibilityWarning.KernelVersion
-                    else -> null
-                }
-                if (compatibilityWarning == null) showInstallConfirmation = true
-            },
-        )
-    }
-
-    compatibilityWarning?.let { warning ->
-        val profile = selectedProfile ?: return@let
-        AlertDialog(
-            onDismissRequest = {
-                compatibilityWarning = null
-                showTargetPicker = true
-            },
-            icon = { Icon(Icons.Rounded.Warning, contentDescription = null) },
-            title = {
-                DialogDimAmount(0.24f)
-                Text(
-                    stringResource(when (warning) {
-                        CompatibilityWarning.Device -> R.string.device_mismatch_title
-                        CompatibilityWarning.KernelVersion -> R.string.kernel_version_mismatch_title
-                    }),
-                )
-            },
-            text = {
-                Text(
-                    when (warning) {
-                        CompatibilityWarning.Device -> stringResource(
-                            R.string.device_mismatch_body,
-                            device.model,
-                            profile.supportedModels,
-                        )
-                        CompatibilityWarning.KernelVersion -> stringResource(
-                            R.string.kernel_version_mismatch_body,
-                            device.kernelVersion,
-                            profile.supportedKernelVersions,
-                        )
-                    },
-                )
-            },
-            confirmButton = {
-                FilledTonalButton(
-                    onClick = {
-                        compatibilityWarning = when (warning) {
-                            CompatibilityWarning.Device -> if (!profile.matchesKernelVersion(device)) {
-                                CompatibilityWarning.KernelVersion
-                            } else {
-                                null
-                            }
-                            CompatibilityWarning.KernelVersion -> null
-                        }
-                        if (compatibilityWarning == null) {
-                            showInstallConfirmation = true
-                        }
-                    },
-                ) {
-                    Text(stringResource(R.string.action_continue))
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        compatibilityWarning = null
-                        showTargetPicker = true
-                    },
-                ) {
-                    Text(stringResource(R.string.action_back))
-                }
-            },
-        )
-    }
-
-    if (showInstallConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showInstallConfirmation = false },
-            icon = { Icon(Icons.Rounded.Security, contentDescription = null) },
-            title = {
-                DialogDimAmount(0.24f)
-                Text(stringResource(R.string.install_confirm_title))
-            },
-            text = {
-                Text(
-                    when {
-                        selectedProfile != null -> stringResource(R.string.install_confirm_body)
-                        else -> when (payloadSource) {
-                            PayloadSource.Bundled -> stringResource(R.string.install_confirm_body_bundled)
-                            PayloadSource.Custom -> stringResource(
-                                R.string.install_confirm_body_custom,
-                                customPayload?.displayName.orEmpty(),
-                            )
-                            PayloadSource.Online -> stringResource(R.string.install_confirm_body)
-                        }
-                    },
-                )
-            },
-            confirmButton = {
-                FilledTonalButton(onClick = {
-                    showInstallConfirmation = false
-                    openInstaller(selectedProfile?.profileId)
-                    selectedProfile = null
-                }) {
-                    Text(stringResource(R.string.action_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showInstallConfirmation = false }) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            },
-        )
-    }
-
     Box(modifier = Modifier.fillMaxSize()) {
         CompositionLocalProvider(
             LocalGlassBackdrop provides glassBackdrop,
@@ -760,7 +622,25 @@ private fun RootApp(
                 // 顶栏 / 底栏都在这个 Box **之外**，所以不会录到自己（自引用）。
                 Box(modifier = Modifier.fillMaxSize().layerBackdrop(glassBackdrop)) {
                 AppBackground()
-                AnimatedContent(targetState = selectedPage, label = "page") { page ->
+                AnimatedContent(
+                    targetState = selectedPage,
+                    transitionSpec = {
+                        // 方向感知的层叠推入：切向右侧页 = 新页从右 1/4 屏弹簧滑入，
+                        // 旧页向左微移淡出。位移只走 1/4 屏 —— 全屏滑动会让两页在
+                        // 玻璃采集层里大面积交叠，模糊条带跟着内容乱跑。
+                        val forward = targetState.ordinal > initialState.ordinal
+                        val enterOffset: (Int) -> Int = { if (forward) it / 4 else -it / 4 }
+                        val exitOffset: (Int) -> Int = { if (forward) -it / 4 else it / 4 }
+                        (
+                            fadeIn(AppMotion.snappy()) +
+                                slideInHorizontally(AppMotion.gentle(), enterOffset)
+                            ).togetherWith(
+                            fadeOut(AppMotion.snappy()) +
+                                slideOutHorizontally(AppMotion.snappy(), exitOffset)
+                        )
+                    },
+                    label = "page",
+                ) { page ->
                     when (page) {
                         AppPage.Overview -> OverviewPage(
                             padding = contentPadding,
@@ -768,9 +648,13 @@ private fun RootApp(
                             installState = installState,
                             payloadSource = payloadSource,
                             customPayload = customPayload,
+                            manualPayload = manualPayload,
                             onPayloadSourceChanged = { source ->
                                 AppPreferences.setPayloadSource(context, source)
                                 payloadSource = source
+                                // 切到自定义来源时，之前给内置库做的指定就没意义了：
+                                // 留着它，用户切回内置时会莫名其妙地回到一份早已忘掉的库。
+                                if (source != PayloadSource.Bundled) manualPayload = null
                                 installViewModel.refresh()
                             },
                             onImportPayload = {
@@ -780,8 +664,8 @@ private fun RootApp(
                                 CustomPayloadStore.clear(context)
                                 customPayload = null
                                 if (payloadSource == PayloadSource.Custom) {
-                                    AppPreferences.setPayloadSource(context, PayloadSource.Online)
-                                    payloadSource = PayloadSource.Online
+                                    AppPreferences.setPayloadSource(context, PayloadSource.Bundled)
+                                    payloadSource = PayloadSource.Bundled
                                 }
                                 installViewModel.refresh()
                                 Toast.makeText(
@@ -794,19 +678,12 @@ private fun RootApp(
                             rootProbeDetail = rootProbeDetail,
                             onRetryRootProbe = { rootProbeTick++ },
                             onHandoffRoot = { showManagerSheet = true },
+                            onManualPayloadChanged = { library -> manualPayload = library },
                             onInstall = {
-                                selectedProfile = null
-                                // ① 内核 < 6.6 且还没开 Shizuku：先提示"免 ADB 走不通"。
-                                //    已经开了 Shizuku 的机器不必再拦（那正是提示里让做的事）。
+                                // 内核 < 6.6 且还没开 Shizuku：先提示"免 ADB 走不通"。
+                                // 已经开了 Shizuku 的机器不必再拦（那正是提示里让做的事）。
                                 if (!device.supportsGhostLockWithoutAdb && !shizukuMode) {
                                     kernelTooOld = true
-                                } else if (advancedMode && payloadSource == PayloadSource.Online) {
-                                    // ② 只有「官方在线源」才谈得上挑 profile —— 它要从在线清单里
-                                    //    按机型/内核选一个下载。内置动态库与自定义动态库都是**本地**
-                                    //    载荷，没有可选项；之前只要开了高级模式就会弹出在线清单，
-                                    //    用内置库时也被"定位到官方在线源"，就是这个判断少了来源这一维。
-                                    showTargetPicker = true
-                                    installViewModel.loadTargetCatalog()
                                 } else {
                                     showInstallConfirmation = true
                                 }
@@ -842,12 +719,14 @@ private fun RootApp(
                             themeMode = themeMode,
                             advancedMode = advancedMode,
                             shizukuMode = shizukuMode,
+                            logDetailed = logDetailed,
                             onAccentColorChanged = onAccentColorChanged,
                             onThemeModeChanged = onThemeModeChanged,
                             onAdvancedModeChanged = onAdvancedModeChanged,
                             onShizukuModeChanged = onShizukuModeChanged,
                             allowTestKernel = allowTestKernel,
                             onAllowTestKernelChanged = onAllowTestKernelChanged,
+                            onLogDetailedChanged = onLogDetailedChanged,
                         )
                     }
                 }
@@ -862,6 +741,80 @@ private fun RootApp(
                 )
                 }
             
+            }
+
+            // ── miuix Overlay 组件必须在 Scaffold 内部 ──
+            // OverlayDialog/OverlayBottomSheet 依赖 Scaffold 提供的
+            // LocalDialogStates / LocalRootDialogStates CompositionLocal
+            // 和 MiuixPopupHost 来渲染弹层。放在 Scaffold 外面时这些
+            // CompositionLocal 是空列表，对话框状态不被消费 → 不渲染。
+            PayloadSchemeSheet(
+                show = showSchemeSheet,
+                onDismiss = { showSchemeSheet = false },
+                onPick = { scheme ->
+                    showSchemeSheet = false
+                    builderViewModel.build(scheme)
+                },
+            )
+
+            KernelTooOldDialog(
+                show = kernelTooOld,
+                kernelVersion = device.kernelVersion,
+                onDismiss = { kernelTooOld = false },
+                onContinue = {
+                    kernelTooOld = false
+                    showInstallConfirmation = true
+                },
+            )
+
+            OverlayDialog(
+                show = showInstallConfirmation,
+                onDismissRequest = { showInstallConfirmation = false },
+                title = stringResource(R.string.install_confirm_title),
+                renderInRootScaffold = false,
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        when (payloadSource) {
+                            PayloadSource.Bundled -> stringResource(R.string.install_confirm_body_bundled)
+                            PayloadSource.Custom -> stringResource(
+                                R.string.install_confirm_body_custom,
+                                customPayload?.displayName.orEmpty(),
+                            )
+                        },
+                    )
+                    manualPayload?.let { library ->
+                        Text(
+                            stringResource(R.string.install_confirm_manual_payload, library),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MiuixTheme.colorScheme.primary,
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    TextButton(
+                        text = stringResource(R.string.action_cancel),
+                        onClick = { showInstallConfirmation = false },
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(
+                        onClick = {
+                            showInstallConfirmation = false
+                            openInstaller(manualPayload.takeIf { payloadSource == PayloadSource.Bundled })
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColorsPrimary(),
+                    ) {
+                        Text(stringResource(R.string.action_confirm))
+                    }
+                }
+            }
+
                     // ── Apple 风格悬浮玻璃底栏 ──
                     // 脱离屏幕边缘：四周留白 + 胶囊圆角 + 玻璃材质，浮在内容之上。
                     // 悬浮栏容器：只吃系统栏 inset（padding），保证两条玻璃栏落在安全区内。
@@ -924,21 +877,17 @@ private fun RootApp(
 }
 
 @Composable
-private fun DialogDimAmount(amount: Float) {
-    val window = (LocalView.current.parent as DialogWindowProvider).window
-    SideEffect { window.setDimAmount(amount) }
-}
-
-@Composable
 private fun OverviewPage(
     padding: PaddingValues,
     device: DeviceSnapshot,
     installState: InstallUiState,
     payloadSource: PayloadSource,
     customPayload: CustomPayloadInfo?,
+    manualPayload: String?,
     onPayloadSourceChanged: (PayloadSource) -> Unit,
     onImportPayload: () -> Unit,
     onRemovePayload: () -> Unit,
+    onManualPayloadChanged: (String?) -> Unit,
     onInstall: () -> Unit,
     /** 是否已检测到 root；null = 还没检测完（按钮禁用并显示"检测中"）。 */
     rootAvailable: Boolean?,
@@ -1001,9 +950,11 @@ private fun OverviewPage(
                     payloadSource = payloadSource,
                     customPayload = customPayload,
                     enabled = !installState.busy,
+                    manualPayload = manualPayload,
                     onSourceChanged = onPayloadSourceChanged,
                     onImport = onImportPayload,
                     onRemove = onRemovePayload,
+                    onManualPayloadChanged = onManualPayloadChanged,
                 )
             }
         }
@@ -1130,17 +1081,42 @@ private fun CustomPayloadCard(
     payloadSource: PayloadSource,
     customPayload: CustomPayloadInfo?,
     enabled: Boolean,
+    manualPayload: String?,
     onSourceChanged: (PayloadSource) -> Unit,
     onImport: () -> Unit,
     onRemove: () -> Unit,
+    onManualPayloadChanged: (String?) -> Unit,
 ) {
     val context = LocalContext.current
     var detailSheet by remember { mutableStateOf<PayloadSource?>(null) }
+    // 本机自动匹配会选中的那份载荷。`remember` 一次：弹层每次开合都重跑
+    // `DeviceSnapshot.current()`（读 /proc + 正则）是不必要的开销。
+    val defaultLibrary = remember {
+        runCatching {
+            PayloadRepository(context)
+                .bundledTarget(DeviceSnapshot.current(), allowSimilar = true)
+                .entry.library
+        }.getOrNull().orEmpty()
+    }
+    val entries = remember(defaultLibrary) { bundledSupportedDevices(defaultLibrary) }
+    // 详情弹层里一行「手动指定了 X」的提示。放在这一层而不是弹层内部：
+    // 弹层一关，用户需要能在卡片上继续看到自己指定过什么。
+    val manualLabel = manualPayload?.let { library ->
+        entries
+            .flatMap { entry -> entry.variants.map { it to entry } }
+            .firstOrNull { (variant, _) -> variant.library == library }
+            ?.let { (variant, entry) -> variant.label }
+            ?: library
+    }
     Card(
-        modifier = Modifier.fillMaxWidth().animateContentSize(),
+        // 这里原本挂着 animateContentSize()。切来源（内置/自定义）时确实会换高度，
+        // 但首页是一次性滚动的 LazyColumn，卡片高度变化本身就会触发重排；
+        // 再叠一层尺寸动画等于把"一次测量"变成"一串测量"，滑动中尤其明显。
+        // 高度变化靠内容本身的进入动画表达就够了。
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
-            modifier = Modifier.padding(18.dp),
+            modifier = Modifier.padding(Spacing.card),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(
@@ -1167,14 +1143,6 @@ private fun CustomPayloadCard(
             }
             Spacer(modifier = Modifier.height(2.dp))
             PayloadSourceChoice(
-                title = stringResource(R.string.payload_source_online),
-                detail = stringResource(R.string.payload_source_online_detail),
-                selected = payloadSource == PayloadSource.Online,
-                enabled = enabled,
-                onSelect = { onSourceChanged(PayloadSource.Online) },
-                onViewDetail = { detailSheet = PayloadSource.Online },
-            )
-            PayloadSourceChoice(
                 title = stringResource(R.string.payload_source_bundled),
                 detail = stringResource(R.string.payload_source_bundled_detail),
                 selected = payloadSource == PayloadSource.Bundled,
@@ -1197,13 +1165,17 @@ private fun CustomPayloadCard(
             )
             Spacer(modifier = Modifier.height(2.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                FilledTonalButton(onClick = onImport, enabled = enabled) {
+                Button(
+                    onClick = onImport,
+                    enabled = enabled,
+                    colors = ButtonDefaults.buttonColorsPrimary(),
+                ) {
                     Icon(Icons.Rounded.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(stringResource(R.string.custom_import_action))
                 }
                 if (customPayload != null) {
-                    OutlinedButton(onClick = onRemove, enabled = enabled) {
+                    Button(onClick = onRemove, enabled = enabled) {
                         Text(stringResource(R.string.custom_remove_action))
                     }
                 }
@@ -1218,25 +1190,18 @@ private fun CustomPayloadCard(
             }
         }
     }
-    when (detailSheet) {
-        PayloadSource.Online -> PayloadSourceDetailSheet(
-            title = stringResource(R.string.payload_detail_online_title),
-            note = stringResource(R.string.payload_detail_online_note),
-            entries = onlineSupportedDevices,
-            kernelBadges = true,
-            chipBadge = null,
-            onDismiss = { detailSheet = null },
-        )
-        PayloadSource.Bundled -> PayloadSourceDetailSheet(
-            title = stringResource(R.string.payload_detail_bundled_title),
-            note = stringResource(R.string.payload_detail_bundled_note),
-            entries = bundledSupportedDevices,
-            kernelBadges = false,
-            chipBadge = stringResource(R.string.chip_snapdragon_8_elite),
-            onDismiss = { detailSheet = null },
-        )
-        else -> {}
-    }
+    PayloadSourceDetailSheet(
+        show = detailSheet == PayloadSource.Bundled,
+        title = stringResource(R.string.payload_detail_bundled_title),
+        note = stringResource(R.string.payload_detail_bundled_note),
+        entries = entries,
+        kernelBadges = true,
+        chipBadge = null,
+        selectedLibrary = manualPayload,
+        onSelect = onManualPayloadChanged,
+        selectedLabel = manualLabel,
+        onDismiss = { detailSheet = null },
+    )
 }
 
 @Composable
@@ -1283,75 +1248,164 @@ private fun PayloadSourceChoice(
 
 private data class SupportedDeviceEntry(
     val name: String,
-    val detail: String,
+    /** 备注的资源 id；`0` 表示这条机型没有备注，界面不渲染第二行。 */
+    @StringRes val noteRes: Int,
     val badge: String,
+    /**
+     * 这条机型对应的可选用载荷（`library` 文件名 → 展示名）。
+     *
+     * 之所以要带上：清单里 4 份通用包（小米 8g2 / 天玑 / 六款共用 / PIE 可执行）
+     * **无法按设备自动匹配**，只能由用户手动指定。早期版本只在这几份的备注里写
+     * 「需在载荷列表手动选用」，但界面上并没有这个列表 —— 用户被指向一个不存在的地方。
+     * 现在把选择入口直接挂在机型条目上。
+     */
+    /**
+     * 这条机型对应的可选用载荷（`library` 文件名 → 展示名）。
+     * 之所以要带上：清单里 4 份通用包…**无法按设备自动匹配**，只能由用户手动指定。
+     * 早期版本只在这几份的备注里写「需在载荷列表手动选用」，但界面上并没有这个列表。
+     */
+    val variants: List<PayloadVariant>,
+    /**
+     * 自动匹配**实际会选中**的那份 `library`。
+     *
+     * 不能拿 [badge] 反查 —— `badge` 是「6.6.89 · 6.6.120」这种**拼起来的展示串**，
+     * 拿它去比 `library` 永远不会命中，"本机推荐"就永远标不出来（多内核机型尤其明显）。
+     */
+    val defaultLibrary: String,
 )
 
-private val onlineSupportedDevices = listOf(
-    SupportedDeviceEntry(
-        "Galaxy S25",
-        "SM-S9310 · S931B · S931N · S931Q · S931U · S931U1 · S931W · S931Z · SC-51F · SCG31",
-        "6.6.98",
-    ),
-    SupportedDeviceEntry(
-        "Galaxy S25+",
-        "SM-S9360 · S936B · S936N · S936U · S936U1 · S936W",
-        "6.6.98",
-    ),
-    SupportedDeviceEntry(
-        "Galaxy S25 Edge",
-        "SM-S9370 · S937B · S937N · S937U · S937U1 · S937W",
-        "6.6.98",
-    ),
-    SupportedDeviceEntry(
-        "Galaxy S25 Ultra",
-        "SM-S9380 · S938B · S938N · S938Q · S938U · S938U1 · S938W · S938Z · SC-52F · SCG32",
-        "6.6.98",
-    ),
-    SupportedDeviceEntry("Galaxy Z Fold 7", "SM-F966U · SM-F966U1", "6.6.98"),
-    SupportedDeviceEntry("Galaxy S24 Ultra", "SM-S928U", "6.1.145"),
-    SupportedDeviceEntry("Galaxy S24+", "SM-S926B", "6.1.157"),
-    SupportedDeviceEntry("Galaxy S24", "SM-S921B · SM-S921N", "6.1.157"),
-    SupportedDeviceEntry(
-        "Galaxy S23 Ultra",
-        "SM-S9180 · S918B · S918N · S918Q · S918U · S918U1 · S918W",
-        "5.15.189",
-    ),
-    SupportedDeviceEntry(
-        "Galaxy A56 5G",
-        "SM-A5660 · A566B · A566E · A566S · A566U1 · A566W",
-        "6.6.102",
-    ),
-    SupportedDeviceEntry("Galaxy A36 5G", "SM-A366W", "6.6.46"),
+/** 机型条目下可点选的一份载荷。 */
+private data class PayloadVariant(
+    val library: String,
+    val label: String,
 )
 
-private val bundledSupportedDevices = listOf(
-    SupportedDeviceEntry("iQOO Neo 10 Pro+", "", ""),
-    SupportedDeviceEntry("iQOO Neo 11", "", ""),
-    SupportedDeviceEntry("iQOO 13", "", ""),
+/**
+ * 内核版本号的自然序比较器（`6.6.89` < `6.6.120`，而不是字符串序的 `6.6.120 < 6.6.89`）。
+ *
+ * 逐段按数值比较，段数不等的（`6.6` vs `6.6.89`）短的那个先排。
+ * 之前用 `sortedBy { split('.').map { toIntOrNull() } }`，会被 Kotlin 类型推断
+ * 判定为「返回 List<Int>，不满足 Comparable」而编译失败。
+ */
+private val kernelVersionComparator = Comparator<String> { left, right ->
+    val leftParts = left.split('.').mapNotNull { it.toIntOrNull() }
+    val rightParts = right.split('.').mapNotNull { it.toIntOrNull() }
+    val shared = minOf(leftParts.size, rightParts.size)
+    var result = 0
+    for (index in 0 until shared) {
+        result = leftParts[index].compareTo(rightParts[index])
+        if (result != 0) break
+    }
+    if (result != 0) result else leftParts.size.compareTo(rightParts.size)
+}
+
+/**
+ * 「工作原理」卡片的一个步骤：[title]/[detail] 是资源 id，[icon] 是步骤图标。
+ *
+ * 提权页（InstallActivity）已不再使用步骤条，但主界面这张说明卡片仍然要用它 ——
+ * 两边的职责不同：提权页是「正在发生什么」的实时状态，主界面是「将要发生什么」
+ * 的静态说明。所以这份定义放在这里，而不是跟着提权页一起删掉。
+ */
+private data class InstallerStep(
+    @StringRes val title: Int,
+    @StringRes val detail: Int,
+    val icon: ImageVector,
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+private val installerSteps = listOf(
+    InstallerStep(R.string.step_support_title, R.string.step_support_detail, Icons.Rounded.Security),
+    InstallerStep(R.string.step_download_title, R.string.step_download_detail, Icons.Rounded.CloudDownload),
+    InstallerStep(R.string.step_exploit_title, R.string.step_exploit_detail, Icons.Rounded.Memory),
+    InstallerStep(R.string.step_ksu_title, R.string.step_ksu_detail, Icons.Rounded.Check),
+)
+
+/**
+ * 内置载荷覆盖的机型清单（由 [BundledPayloadCatalog] 生成，不再手写）。
+ *
+ * 之前这里是两张手写表，其中 `onlineSupportedDevices` 是三星 Galaxy 系列 ——
+ * 在线源移除后整张表一并删掉。现在的唯一来源是随包载荷清单本身，
+ * 这样"界面说支持什么"和"包里真的有什么"永远不会说两句话。
+ */
+/**
+ * 内置载荷清单的界面投影。
+ *
+ * @param defaultLibrary 本机自动匹配**实际会选中**的那份 `library`。
+ *        由调用方算好传进来，而不是在这里自己再 `DeviceSnapshot.current()` 一遍 ——
+ *        后者会读 /proc 并跑正则，且可能出现"清单里的推荐"和"安装时真选的"
+ *        来自两次不同快照而互相矛盾。
+ */
+private fun bundledSupportedDevices(defaultLibrary: String): List<SupportedDeviceEntry> =
+    BundledPayloadCatalog.ALL
+        .groupBy { it.displayName }
+        .map { (name, entries) ->
+            val kernels = entries
+                .mapNotNull { it.kernelVersion }
+                .distinct()
+                .sortedWith(kernelVersionComparator)
+            SupportedDeviceEntry(
+                name = name,
+                // 备注走字符串资源，非中文语言下不会漏出中文；
+                // 同一机型有多份载荷时取**第一条非空备注**，避免被第一条空备注吞掉。
+                noteRes = entries.firstOrNull { it.noteRes != 0 }?.noteRes ?: 0,
+                badge = kernels.joinToString(" · "),
+                // 同一机型下的每一份载荷都做成可点选项：备注只说明"为什么有多份"，
+                // 真正让用户选中的是这个列表。内核版本已知的拼上版本号，避免只看到
+                // 四个同名条目分不清谁是谁。
+                variants = entries.map { entry ->
+                    PayloadVariant(
+                        library = entry.library,
+                        label = entry.kernelVersion?.let { "$name · $it" } ?: name,
+                    )
+                },
+                defaultLibrary = defaultLibrary,
+            )
+        }
+
 @Composable
 private fun PayloadSourceDetailSheet(
+    show: Boolean,
     title: String,
     note: String,
     entries: List<SupportedDeviceEntry>,
     kernelBadges: Boolean,
     chipBadge: String?,
+    selectedLibrary: String?,
+    onSelect: (String?) -> Unit,
+    selectedLabel: String?,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    // 只有条目数 > 1 时才值得手动选，否则这是个徒增误操作入口的装饰。
+    val selectable = entries.any { it.variants.size > 1 }
+    // miuix 弹层：show 驱动弹簧出入场，常驻组合（不能包在 if 里）。
+    OverlayBottomSheet(
+        show = show,
+        title = title,
+        onDismissRequest = onDismiss,
+        renderInRootScaffold = false,
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = Spacing.page)
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, style = MaterialTheme.typography.headlineSmall)
                 Text(note, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (selectable) {
+                    Text(
+                        stringResource(R.string.payload_detail_pick_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MiuixTheme.colorScheme.primary,
+                    )
+                }
+                if (selectedLabel != null) {
+                    Text(
+                        stringResource(R.string.payload_detail_selected, selectedLabel),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             LazyColumn(
                 modifier = Modifier
@@ -1365,42 +1419,81 @@ private fun PayloadSourceDetailSheet(
                         shape = MaterialTheme.shapes.medium,
                         color = MaterialTheme.colorScheme.surfaceContainerHighest,
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        Column(
+                            modifier = Modifier.padding(horizontal = Spacing.card, vertical = Spacing.item),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
                             ) {
-                                Text(entry.name, style = MaterialTheme.typography.titleSmall)
-                                if (entry.detail.isNotEmpty()) {
-                                    Text(
-                                        entry.detail,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                                ) {
+                                    Text(entry.name, style = MaterialTheme.typography.titleSmall)
+                                    if (entry.noteRes != 0) {
+                                        Text(
+                                            stringResource(entry.noteRes),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                                val badge = when {
+                                    kernelBadges -> stringResource(R.string.payload_detail_kernel_format, entry.badge)
+                                    chipBadge != null -> chipBadge
+                                    else -> null
+                                }
+                                if (badge != null) {
+                                    Surface(
+                                        shape = RoundedCornerShape(50),
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    ) {
+                                        Text(
+                                            badge,
+                                            modifier = Modifier.padding(horizontal = Spacing.inline, vertical = 5.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            maxLines = 1,
+                                        )
+                                    }
                                 }
                             }
-                            val badge = when {
-                                kernelBadges -> stringResource(R.string.payload_detail_kernel_format, entry.badge)
-                                chipBadge != null -> chipBadge
-                                else -> null
-                            }
-                            if (badge != null) {
-                                Surface(
-                                    shape = RoundedCornerShape(50),
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                ) {
-                                    Text(
-                                        badge,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        maxLines = 1,
-                                    )
+                            // 可选用载荷。**自动匹配先跑一遍**并把它标成「推荐」：
+                            // 用户手动选择的前提是知道"不选的话会用哪一份"，
+                            // 否则这个列表只是让人对着文件名猜。
+                            if (selectable && entry.variants.isNotEmpty()) {
+                                // 自动匹配会选中的那一份，标成「推荐」——用户手动选择的前提
+                                // 是知道"不选的话会用哪一份"，否则这个列表只是让人对着文件名猜。
+                                entry.variants.forEach { variant ->
+                                    val checked = selectedLibrary == variant.library
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .selectable(
+                                                selected = checked,
+                                                role = Role.RadioButton,
+                                                onClick = { onSelect(if (checked) null else variant.library) },
+                                            ),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    ) {
+                                        RadioButton(selected = checked, onClick = null)
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                variant.label,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                            )
+                                            if (variant.library == entry.defaultLibrary) {
+                                                Text(
+                                                    stringResource(R.string.payload_detail_recommended),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1448,7 +1541,7 @@ private fun HowItWorksCard() {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
-            modifier = Modifier.padding(18.dp),
+            modifier = Modifier.padding(Spacing.card),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Text(stringResource(R.string.how_it_works), style = MaterialTheme.typography.titleMedium)
@@ -1501,19 +1594,24 @@ private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Uni
                 else -> onInstall()
             }
         },
-        modifier = Modifier.fillMaxWidth().animateContentSize(),
+        // 这张卡片的布局在三态间是**定高**的（图标 44dp + 两行文字），
+        // animateContentSize 实际上几乎没有可动画的尺寸变化，却让它在每次
+        // 安装态刷新时都进一次"尺寸动画"通道 —— 去掉，少一层测量参与。
+        modifier = Modifier.fillMaxWidth(),
         // MIUI 原生按压反馈（整块下沉），替代自绘的缩放动画
         pressFeedbackType = PressFeedbackType.Sink,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
+            modifier = Modifier.padding(Spacing.card),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             when {
-                installState.busy -> LoadingIndicator(
-                    modifier = Modifier.size(44.dp),
+                installState.busy -> InfiniteProgressIndicator(
+                    size = 44.dp,
                     color = MaterialTheme.colorScheme.onSurface,
+                    strokeWidth = 3.dp,
+                    orbitingDotSize = 3.dp,
                 )
                 installState.phase == InstallPhase.Installed -> Icon(
                     Icons.Rounded.CheckCircle, contentDescription = null, modifier = Modifier.size(44.dp),
@@ -1580,7 +1678,7 @@ private fun ActivationHintCard() {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 16.dp),
+                .padding(Spacing.card),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(13.dp),
         ) {
@@ -1617,7 +1715,7 @@ private fun DeviceCard(device: DeviceSnapshot) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
-            modifier = Modifier.padding(18.dp),
+            modifier = Modifier.padding(Spacing.card),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             InfoRow(Icons.Rounded.Memory, stringResource(R.string.device), "${device.manufacturer} ${device.model} (${device.device})")
@@ -1664,6 +1762,20 @@ private fun HistoryPage(
     AnimatedContent(
         targetState = selectedEntry,
         contentKey = { it?.id ?: "history-list" },
+        transitionSpec = {
+            // 「下钻」语义：进详情 = 详情从右弹簧推入，列表向左让位；
+            // 返回则整个反向播一遍。有方向感的切换比无脑淡入淡出更像原生导航。
+            val entering = targetState != null
+            val enterOffset: (Int) -> Int = { if (entering) it / 3 else -it / 3 }
+            val exitOffset: (Int) -> Int = { if (entering) -it / 3 else it / 3 }
+            (
+                fadeIn(AppMotion.snappy()) +
+                    slideInHorizontally(AppMotion.gentle(), enterOffset)
+                ).togetherWith(
+                fadeOut(AppMotion.snappy()) +
+                    slideOutHorizontally(AppMotion.snappy(), exitOffset)
+            )
+        },
         label = "history-detail",
     ) { entry ->
         if (entry == null) {
@@ -1704,7 +1816,7 @@ private fun HistoryList(
             Text(
                 text = stringResource(R.string.history_title),
                 style = MaterialTheme.typography.headlineLarge,
-                modifier = Modifier.padding(top = 20.dp, bottom = 14.dp),
+                modifier = Modifier.padding(top = Spacing.page, bottom = Spacing.item),
             )
         }
         if (history.isEmpty()) {
@@ -1725,7 +1837,7 @@ private fun EmptyHistoryCard() {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
+            modifier = Modifier.padding(Spacing.card),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -1752,7 +1864,7 @@ private fun HistoryEntryCard(entry: InstallHistoryEntry, onClick: () -> Unit) {
         pressFeedbackType = PressFeedbackType.Sink,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 15.dp),
+            modifier = Modifier.padding(Spacing.card),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(13.dp),
         ) {
@@ -1868,7 +1980,7 @@ private fun HistoryDetail(
                     ) {
                 Text(
                     text = entry.log.ifBlank { stringResource(R.string.history_log_empty) },
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(Spacing.card),
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = FontFamily.Monospace,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -1885,7 +1997,7 @@ private fun HistoryResultCard(entry: InstallHistoryEntry) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
-            modifier = Modifier.padding(18.dp),
+            modifier = Modifier.padding(Spacing.card),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -2060,6 +2172,7 @@ private fun SettingsPage(
     themeMode: AppThemeMode,
     advancedMode: Boolean,
     shizukuMode: Boolean,
+    logDetailed: Boolean,
     onAccentColorChanged: (AccentColor) -> Unit,
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onAdvancedModeChanged: (Boolean) -> Unit,
@@ -2067,6 +2180,7 @@ private fun SettingsPage(
     /** 「5.x 内核支持（beta）」开关的当前值。 */
     allowTestKernel: Boolean,
     onAllowTestKernelChanged: (Boolean) -> Unit,
+    onLogDetailedChanged: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -2084,29 +2198,35 @@ private fun SettingsPage(
     val density = LocalDensity.current
     val currentLanguageTag = AppPreferences.languageTag(context)
 
-    if (showShizukuMissingDialog) {
-        AlertDialog(
-            onDismissRequest = { showShizukuMissingDialog = false },
-            icon = { Icon(Icons.Rounded.Info, contentDescription = null) },
-            title = {
-                DialogDimAmount(0.24f)
-                Text(stringResource(R.string.shizuku_not_running_title))
-            },
-            text = { Text(stringResource(R.string.shizuku_not_running_body)) },
-            confirmButton = {
-                FilledTonalButton(onClick = {
+    OverlayDialog(
+        show = showShizukuMissingDialog,
+        onDismissRequest = { showShizukuMissingDialog = false },
+        title = stringResource(R.string.shizuku_not_running_title),
+        renderInRootScaffold = false,
+    ) {
+        Text(stringResource(R.string.shizuku_not_running_body))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            TextButton(
+                text = stringResource(R.string.action_cancel),
+                onClick = { showShizukuMissingDialog = false },
+                modifier = Modifier.weight(1f),
+            )
+            Button(
+                onClick = {
                     showShizukuMissingDialog = false
                     openShizukuManager(context)
-                }) {
-                    Text(stringResource(R.string.action_download_shizuku))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showShizukuMissingDialog = false }) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            },
-        )
+                },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColorsPrimary(),
+            ) {
+                Text(stringResource(R.string.action_download_shizuku))
+            }
+        }
     }
 
     if (showKernelDialog) {
@@ -2182,9 +2302,10 @@ private fun SettingsPage(
         )
     }
 
-    if (showAboutDialog) {
-        AboutDialog(onDismiss = { showAboutDialog = false })
-    }
+    AboutDialog(
+        show = showAboutDialog,
+        onDismiss = { showAboutDialog = false },
+    )
 
     val layoutDirection = LocalLayoutDirection.current
     LazyColumn(
@@ -2199,7 +2320,7 @@ private fun SettingsPage(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            Column(modifier = Modifier.padding(top = 20.dp, bottom = 18.dp)) {
+            Column(modifier = Modifier.padding(top = Spacing.page, bottom = Spacing.card)) {
                 Text(stringResource(R.string.settings), style = MaterialTheme.typography.headlineLarge)
                 Text(
                     stringResource(R.string.version_format, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE),
@@ -2271,6 +2392,13 @@ private fun SettingsPage(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                     ) {
+                SwitchPreference(
+                    checked = logDetailed,
+                    onCheckedChange = onLogDetailedChanged,
+                    title = stringResource(R.string.log_detailed),
+                    summary = stringResource(R.string.log_detailed_description),
+                    startAction = { PreferenceIcon(Icons.AutoMirrored.Rounded.Article) },
+                )
                 SwitchPreference(
                     checked = advancedMode,
                     onCheckedChange = onAdvancedModeChanged,
@@ -2531,31 +2659,30 @@ private fun HandoffResultDialog(lines: List<String>, onDismiss: () -> Unit) {
  * 都能跑，但没有 vivo 的 `vr.ko` 反 root 绕过；vivo/iQOO 上少了那条绕过会被
  * 厂商的反 root 拦下来，所以那两个品牌必须选第二项。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PayloadSchemeSheet(
+    show: Boolean,
     onDismiss: () -> Unit,
     onPick: (PayloadScheme) -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    // miuix 弹层：show 驱动弹簧出入场，常驻组合（不能包在 if 里）。
+    OverlayBottomSheet(
+        show = show,
+        title = stringResource(R.string.builder_scheme_title),
+        onDismissRequest = onDismiss,
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = Spacing.page)
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = stringResource(R.string.builder_scheme_title),
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-                Text(
-                    text = stringResource(R.string.builder_scheme_subtitle),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Text(
+                text = stringResource(R.string.builder_scheme_subtitle),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             PayloadScheme.entries.forEachIndexed { index, scheme ->
                 val recommended = scheme == PayloadScheme.Universal
                 Card(
@@ -2564,7 +2691,7 @@ private fun PayloadSchemeSheet(
                     pressFeedbackType = PressFeedbackType.Sink,
                 ) {
                     Row(
-                        modifier = Modifier.padding(18.dp),
+                        modifier = Modifier.padding(Spacing.card),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
@@ -2710,7 +2837,7 @@ private fun PayloadBuilderPage(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            Column(modifier = Modifier.padding(top = 20.dp, bottom = 6.dp)) {
+            Column(modifier = Modifier.padding(top = Spacing.page, bottom = Spacing.tight)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -2739,7 +2866,7 @@ private fun PayloadBuilderPage(
         item {
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(
-                    modifier = Modifier.padding(18.dp),
+                    modifier = Modifier.padding(Spacing.card),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Row(
@@ -2780,10 +2907,11 @@ private fun PayloadBuilderPage(
                     )
                     // 一上一下：先选文件、再开始构建。两步是**有先后**的，
                     // 并排放会让人以为可以随便点其中一个。
-                    FilledTonalButton(
+                    Button(
                         onClick = onPickBootImage,
                         enabled = !state.busy,
-                        modifier = Modifier.fillMaxWidth().height(BuilderButtonHeight),
+                        modifier = Modifier.fillMaxWidth(),
+                        minHeight = BuilderButtonHeight,
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.FolderOpen,
@@ -2796,7 +2924,9 @@ private fun PayloadBuilderPage(
                     Button(
                         onClick = onBuild,
                         enabled = !state.busy && state.sourceName.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth().height(BuilderButtonHeight),
+                        modifier = Modifier.fillMaxWidth(),
+                        minHeight = BuilderButtonHeight,
+                        colors = ButtonDefaults.buttonColorsPrimary(),
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Build,
@@ -2814,13 +2944,15 @@ private fun PayloadBuilderPage(
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Row(
-                        modifier = Modifier.padding(18.dp),
+                        modifier = Modifier.padding(Spacing.card),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
-                        LoadingIndicator(
-                            modifier = Modifier.size(28.dp),
-                            color = MaterialTheme.colorScheme.primary,
+                        InfiniteProgressIndicator(
+                            size = 28.dp,
+                            color = MiuixTheme.colorScheme.primary,
+                            strokeWidth = 2.5.dp,
+                            orbitingDotSize = 2.5.dp,
                         )
                         Column {
                             Text(
@@ -2844,7 +2976,7 @@ private fun PayloadBuilderPage(
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(
-                        modifier = Modifier.padding(16.dp),
+                        modifier = Modifier.padding(Spacing.card),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Text(
@@ -2871,7 +3003,7 @@ private fun PayloadBuilderPage(
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Row(
-                        modifier = Modifier.padding(18.dp),
+                        modifier = Modifier.padding(Spacing.card),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
@@ -2895,7 +3027,7 @@ private fun PayloadBuilderPage(
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+                        modifier = Modifier.padding(Spacing.card),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
@@ -2942,7 +3074,7 @@ private fun PayloadBuilderPage(
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         text = state.summary.trim(),
-                        modifier = Modifier.padding(18.dp),
+                        modifier = Modifier.padding(Spacing.card),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 12.sp,
                         lineHeight = 20.sp,
@@ -2955,7 +3087,7 @@ private fun PayloadBuilderPage(
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(
-                        modifier = Modifier.padding(18.dp),
+                        modifier = Modifier.padding(Spacing.card),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Row(
@@ -2990,7 +3122,7 @@ private fun PayloadBuilderPage(
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(
-                        modifier = Modifier.padding(18.dp),
+                        modifier = Modifier.padding(Spacing.card),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         Row(
@@ -3027,14 +3159,16 @@ private fun PayloadBuilderPage(
                                 )
                             }
                         }
-                        // 主操作：用主题色（Button 默认就是 colorScheme.primary）并占满整行。
+                        // 主操作：主题色实心（miuix primary 色板），占满整行。
                         // 之前它被 `!state.appliedAsPayload` 关掉了 —— 但构建成功后
                         // 产物**已经自动**写进自定义载荷，于是这个按钮永远是灰的，
                         // 看起来像"坏了"。它本来就该是个可重复点的动作（重新写一遍即可）。
                         Button(
                             onClick = onApplyAsPayload,
                             enabled = !state.busy,
-                            modifier = Modifier.fillMaxWidth().height(BuilderButtonHeight),
+                            modifier = Modifier.fillMaxWidth(),
+                            minHeight = BuilderButtonHeight,
+                            colors = ButtonDefaults.buttonColorsPrimary(),
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.Check,
@@ -3051,17 +3185,17 @@ private fun PayloadBuilderPage(
                             Text(
                                 text = stringResource(R.string.builder_applied_state),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
+                                color = MiuixTheme.colorScheme.primary,
                             )
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            OutlinedButton(
+                            Button(
                                 onClick = onExportLibrary,
                                 modifier = Modifier.weight(1f),
                             ) {
                                 Text(stringResource(R.string.builder_export_so))
                             }
-                            OutlinedButton(
+                            Button(
                                 onClick = onExportHeader,
                                 modifier = Modifier.weight(1f),
                             ) {
@@ -3081,172 +3215,13 @@ private val BuilderButtonHeight = 48.dp
 /** 日志卡片里最多显示多少行（内存里保留 [PayloadBuilderViewModel] 的 400 行）。 */
 private const val LOG_TAIL_LINES = 60
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun TargetSelectionSheet(
-    device: DeviceSnapshot,
-    catalog: TargetCatalogUiState,
-    onDismiss: () -> Unit,
-    onRetry: () -> Unit,
-    onNext: (TargetProfile) -> Unit,
-) {
-    var showOnlyMyDevice by remember { mutableStateOf(true) }
-    var selectedProfileId by remember { mutableStateOf<String?>(null) }
-    val visibleProfiles = remember(catalog.profiles, showOnlyMyDevice, device) {
-        if (showOnlyMyDevice) {
-            catalog.profiles.filter { it.matches(device) }
-        } else {
-            catalog.profiles
-        }
-    }
-    val selectedProfile = catalog.profiles.firstOrNull { it.profileId == selectedProfileId }
-
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    stringResource(R.string.select_device_title),
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-                Text(
-                    stringResource(R.string.select_device_description),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .toggleable(
-                        value = showOnlyMyDevice,
-                        role = Role.Checkbox,
-                        onValueChange = { enabled ->
-                            showOnlyMyDevice = enabled
-                            if (enabled && selectedProfile?.matches(device) == false) {
-                                selectedProfileId = null
-                            }
-                        },
-                    )
-                    .padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Checkbox(
-                    state = if (showOnlyMyDevice) ToggleableState.On else ToggleableState.Off,
-                    onClick = null,
-                )
-                Text(stringResource(R.string.show_my_device_only), style = MaterialTheme.typography.titleMedium)
-            }
-
-            when {
-                catalog.loading -> Box(
-                    modifier = Modifier.fillMaxWidth().height(220.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    LoadingIndicator(color = MaterialTheme.colorScheme.onSurface)
-                }
-                catalog.error != null -> Column(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text(catalog.error, color = MaterialTheme.colorScheme.error)
-                    FilledTonalButton(onClick = onRetry) {
-                        Text(stringResource(R.string.action_retry))
-                    }
-                }
-                visibleProfiles.isEmpty() -> Text(
-                    stringResource(R.string.no_matching_devices),
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                else -> LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 480.dp)
-                        .selectableGroup(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(visibleProfiles, key = TargetProfile::profileId) { profile ->
-                        val selected = selectedProfileId == profile.profileId
-                        val matchingModel = profile.models.firstOrNull {
-                            it.equals(device.model, ignoreCase = true)
-                        }
-                        val modelLabel = matchingModel ?: profile.models.take(3).joinToString().let {
-                            if (profile.models.size > 3) "$it +${profile.models.size - 3}" else it
-                        }
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = MaterialTheme.shapes.large,
-                            color = if (selected) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainerHighest
-                            },
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .selectable(
-                                        selected = selected,
-                                        role = Role.RadioButton,
-                                        onClick = { selectedProfileId = profile.profileId },
-                                    )
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            ) {
-                                RadioButton(selected = selected, onClick = null)
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        profile.displayName,
-                                        style = MaterialTheme.typography.titleMedium,
-                                    )
-                                    Text(
-                                        modelLabel,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            HorizontalDivider()
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-                Button(
-                    onClick = { selectedProfile?.let(onNext) },
-                    enabled = selectedProfile != null,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text(stringResource(R.string.action_next))
-                }
-            }
-        }
-    }
-}
-
 @Composable
 private fun SectionLabel(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 18.dp, top = 6.dp, bottom = 2.dp),
+        modifier = Modifier.padding(start = Spacing.card, top = 6.dp, bottom = 2.dp),
     )
 }
 
@@ -3277,38 +3252,16 @@ private fun ThemeModeSelector(
     onThemeModeChanged: (AppThemeMode) -> Unit,
 ) {
     val themeModes = AppThemeMode.entries
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-    ) {
-        themeModes.forEachIndexed { index, mode ->
-            ToggleButton(
-                checked = themeMode == mode,
-                onCheckedChange = { onThemeModeChanged(mode) },
-                modifier = Modifier.weight(1f).semantics { role = Role.RadioButton },
-                colors = ToggleButtonDefaults.toggleButtonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                ),
-                shapes = when (index) {
-                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
-                    themeModes.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
-                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
-                },
-                contentPadding = PaddingValues(horizontal = 10.dp),
-            ) {
-                Icon(
-                    imageVector = when (mode) {
-                        AppThemeMode.System -> Icons.Rounded.BrightnessAuto
-                        AppThemeMode.Light -> Icons.Rounded.LightMode
-                        AppThemeMode.Dark -> Icons.Rounded.DarkMode
-                    },
-                    contentDescription = null,
-                )
-                Spacer(Modifier.size(ToggleButtonDefaults.IconSpacing))
-                Text(themeModeLabel(mode), maxLines = 1)
-            }
-        }
-    }
+    // MIUI 原生分段控制器：胶囊底座 + 圆角滑块，切换时滑块以弹簧滑过去
+    // （M3 的 ButtonGroup/ToggleButton 是三块独立按钮，没有这层连续的滑动语义）。
+    TabRow(
+        tabs = themeModes.map { themeModeLabel(it) },
+        selectedTabIndex = themeModes.indexOf(themeMode).coerceAtLeast(0),
+        onTabSelected = { index -> onThemeModeChanged(themeModes[index]) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics { role = Role.RadioButton },
+    )
 }
 
 /**
@@ -3323,38 +3276,54 @@ private fun ThemeModeSelector(
  */
 @Composable
 private fun KernelTooOldDialog(
+    show: Boolean,
     kernelVersion: String,
     onDismiss: () -> Unit,
     onContinue: () -> Unit,
 ) {
     var remaining by remember { mutableIntStateOf(CountdownSeconds) }
-    LaunchedEffect(kernelVersion) {
+    // 常驻组合后 show 每次转真都要重置倒计时 —— 旧的条件组合靠销毁重建
+    // remember 来"顺便"重置，改成 show 驱动后必须显式来一遍。
+    LaunchedEffect(show, kernelVersion) {
+        if (!show) return@LaunchedEffect
+        remaining = CountdownSeconds
         while (remaining > 0) {
             delay(1000)
             remaining -= 1
         }
     }
-    AlertDialog(
+    OverlayDialog(
+        show = show,
         onDismissRequest = onDismiss,
-        icon = { Icon(Icons.Rounded.Warning, contentDescription = null) },
-        title = {
-            DialogDimAmount(0.24f)
-            Text(stringResource(R.string.kernel_gate_title))
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(stringResource(R.string.kernel_gate_body, kernelVersion))
-                Text(
-                    text = stringResource(R.string.kernel_gate_shizuku_hint),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = {
-            FilledTonalButton(
+        title = stringResource(R.string.kernel_gate_title),
+        renderInRootScaffold = false,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(stringResource(R.string.kernel_gate_body, kernelVersion))
+            Text(
+                text = stringResource(R.string.kernel_gate_shizuku_hint),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            TextButton(
+                text = stringResource(R.string.action_cancel),
+                onClick = onDismiss,
+                modifier = Modifier.weight(1f),
+            )
+            // 倒计时用 disabled 态实现"强制等待"：按钮是灰的、点不了，
+            // 数字递减归零后 primary 色亮起 —— MIUI 主操作惯例放在右下。
+            Button(
                 onClick = onContinue,
                 enabled = remaining == 0,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColorsPrimary(),
             ) {
                 Text(
                     if (remaining > 0) {
@@ -3364,31 +3333,23 @@ private fun KernelTooOldDialog(
                     },
                 )
             }
-        },
-        dismissButton = {
-            // 取消用主题色的实心按钮：倒计时期间**只有它**能点，
-            // 视觉上必须一眼看出"现在能按的是这个"。
-            Button(onClick = onDismiss) {
-                Text(stringResource(R.string.action_cancel))
-            }
-        },
-    )
+        }
+    }
 }
 
 /** 内核提示框确认按钮的倒计时秒数。 */
 private const val CountdownSeconds = 3
 
 @Composable
-private fun AboutDialog(onDismiss: () -> Unit) {
+private fun AboutDialog(show: Boolean, onDismiss: () -> Unit) {
     val uriHandler = LocalUriHandler.current
-    AlertDialog(
+    OverlayDialog(
+        show = show,
         onDismissRequest = onDismiss,
-        title = {
-            DialogDimAmount(0.24f)
-            Text(stringResource(R.string.about_title))
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        title = stringResource(R.string.about_title),
+        renderInRootScaffold = false,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text(stringResource(R.string.about_body))
                 Text(
                     stringResource(R.string.version_format, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE),
@@ -3472,13 +3433,14 @@ private fun AboutDialog(onDismiss: () -> Unit) {
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.action_close))
-            }
-        },
-    )
+            TextButton(
+                text = stringResource(R.string.action_close),
+                onClick = onDismiss,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 20.dp),
+            )
+    }
 }
 
 @Composable
@@ -3535,7 +3497,7 @@ private fun SideChoiceMenu(
                 visible = visible,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = constrainedTop, end = 18.dp),
+                    .padding(top = constrainedTop, end = Spacing.card),
                 enter = scaleIn(
                     animationSpec = keyframes {
                         durationMillis = 200
@@ -3597,7 +3559,7 @@ private fun SideChoiceMenu(
                                 },
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+                                    modifier = Modifier.padding(Spacing.card),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 ) {
