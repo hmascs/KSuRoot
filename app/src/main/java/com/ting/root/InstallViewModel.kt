@@ -167,7 +167,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             }
             try {
                 // 全部改成本地解析：不再有 GitHub 往返，这一步是纯内存 + 一次文件 stat。
-                val snapshot = DeviceSnapshot.current()
+                val snapshot = DeviceSnapshot.current(app)
                 val resolution = repository.bundledTarget(snapshot, allowSimilar = false)
                 mutableState.value = InstallUiState(
                     phase = InstallPhase.Ready,
@@ -179,10 +179,10 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 // 设备没有精确匹配的内置库时不再直接判"不支持" —— 可能是同厂商的兄弟机型，
                 // 标成"可能可用"让用户自己决定要不要试。
                 //
-                // 注意 snapshot 只取一次：`DeviceSnapshot.current()` 会读 /proc（version、
+                // 注意 snapshot 只取一次：`DeviceSnapshot.current(app)` 会读 /proc（version、
                 // cmdline、sysfs）并做正则解析，是这份代码里最贵的一次"本地调用"。旧写法
                 // 在 catch 分支里又调了两次，纯属重复劳动。
-                val snapshot = runCatching { DeviceSnapshot.current() }.getOrNull()
+                val snapshot = runCatching { DeviceSnapshot.current(app) }.getOrNull()
                 val similar = snapshot?.let { current ->
                     runCatching { repository.bundledTarget(current, allowSimilar = true) }.getOrNull()
                 }
@@ -273,7 +273,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
 
                 val payloads = when (source) {
                     PayloadSource.Bundled -> {
-                        val snapshot = DeviceSnapshot.current()
+                        val snapshot = DeviceSnapshot.current(app)
                         val resolution = if (bundledLibrary != null) {
                             repository.selectBundled(bundledLibrary)
                                 ?: error(app.getString(R.string.error_bundled_missing))
@@ -324,7 +324,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     }
                     PayloadSource.Custom -> {
                         val info = customInfo ?: error(app.getString(R.string.custom_import_failed))
-                        val profile = repository.customTarget(DeviceSnapshot.current())
+                        val profile = repository.customTarget(DeviceSnapshot.current(app))
                         appendLog(app.getString(R.string.log_profile, profile.profileId))
                         updateHistoryProfile(profile.profileId)
                         appendLog(app.getString(R.string.log_custom_payload, info.displayName))

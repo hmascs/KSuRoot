@@ -672,7 +672,12 @@ object BundledPayloadCatalog {
         /** 允许回落到"可能可用"的相似机型。关掉时只有 [MatchTier.Exact] 会返回。 */
         allowSimilar: Boolean = true,
     ): Resolution? {
-        val model = snapshot.model.lowercase()
+        // [2026-09-24] haystack 从"只有 Build.MODEL"改成**全部身份串**。
+        // 原因：vivo/iQOO 的 Build.MODEL 是型号代码（V2463A），而目录里登记的是
+        // 市场名（iqoo 13）—— 只赌 MODEL 必然匹配不上。identityText 里含
+        // model/device/product/board/manufacturer/brand + 市场名属性，
+        // 名字落在哪个字段都能命中。这是纯召回提升，不需要新增数据。
+        val model = snapshot.identityText.ifBlank { snapshot.model }.lowercase()
         val kernel = snapshot.kernelVersion
         val commit = snapshot.kernelCommit
 
@@ -681,7 +686,12 @@ object BundledPayloadCatalog {
             bundledLibFile(context)?.let { return Resolution(LIBBS, MatchTier.Exact, it) }
         }
 
-        val candidates = ALL.filter { it.model != null && matchesModel(it.model, model) }
+        // 目录里的 displayName（如 "iQOO 13"）本身也是很好的关键词组，
+        // 额外带上它 —— 有些条目 model 只写了代号而 displayName 才是全名。
+        val candidates = ALL.filter { entry ->
+            val groups = (entry.model ?: emptyList()) + listOf(entry.displayName)
+            groups.any { matchesModel(listOf(it), model) }
+        }
         if (candidates.isEmpty()) {
             return similarDeviceFallback(context, snapshot).takeIf { allowSimilar }
         }

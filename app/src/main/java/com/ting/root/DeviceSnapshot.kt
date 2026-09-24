@@ -1,5 +1,7 @@
 package com.ting.root
 
+import android.content.Context
+
 import android.os.Build
 import android.system.Os
 import android.system.OsConstants
@@ -8,6 +10,19 @@ data class DeviceSnapshot(
     val manufacturer: String,
     val model: String,
     val device: String,
+    /**
+     * 市场名（人能读懂的名字，如 `iQOO 13`）。厂商没提供时为 null。
+     *
+     * **不回落**到型号代码 —— 由界面决定怎么显示，避免把 `V2463A` 当名字用。
+     */
+    val marketName: String? = null,
+    /**
+     * 全部身份串拼成的匹配 haystack（小写）。
+     *
+     * 匹配器用它而不是只用 [model]：厂商把名字放在 MODEL / DEVICE / PRODUCT /
+     * 市场名属性的哪一个里完全不统一，只赌 MODEL 会在 vivo 这类机型上必然失败。
+     */
+    val identityText: String = "",
     val kernelRelease: String,
     val buildId: String,
     val fingerprint: String,
@@ -67,12 +82,18 @@ data class DeviceSnapshot(
     companion object {
         private val KERNEL_COMMIT_PATTERN = Regex("-g([0-9a-f]{10,})")
 
-        fun current(): DeviceSnapshot {
+        /**
+         * @param context 用于读 `Settings.Global.device_name`（市场名的一种来源）。
+         *        传 null 时只查系统属性 —— 单测与无 Context 场景仍可用。
+         */
+        fun current(context: Context? = null): DeviceSnapshot {
             val uname = Os.uname()
             return DeviceSnapshot(
                 manufacturer = Build.MANUFACTURER,
                 model = Build.MODEL,
                 device = Build.DEVICE,
+                marketName = DeviceIdentity.marketName(context),
+                identityText = DeviceIdentity.identityText(context),
                 kernelRelease = uname.release,
                 buildId = Build.DISPLAY,
                 fingerprint = Build.FINGERPRINT,

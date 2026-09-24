@@ -374,7 +374,7 @@ private fun RootApp(
     // 只活在这一次界面会话里，不落盘 —— 它是"这次就用这份"的一次性决定，
     // 存起来反而会在换机/换库之后变成一颗埋着的雷。
     var manualPayload by remember { mutableStateOf<String?>(null) }
-    val device = remember { DeviceSnapshot.current() }
+    val device = remember { DeviceSnapshot.current(context) }
 
     // backdrop 的采集源（底栏与滑块的模糊 + 折射用）。
     // 采集层里画了什么，玻璃就只可能糊到什么 —— 所以「背景 + 页面内容」都必须
@@ -1138,7 +1138,7 @@ private fun CustomPayloadCard(
     val defaultLibrary = remember {
         runCatching {
             PayloadRepository(context)
-                .bundledTarget(DeviceSnapshot.current(), allowSimilar = true)
+                .bundledTarget(DeviceSnapshot.current(context), allowSimilar = true)
                 .entry.library
         }.getOrNull().orEmpty()
     }
@@ -1724,7 +1724,24 @@ private fun DeviceCard(device: DeviceSnapshot) {
             modifier = Modifier.padding(Spacing.card),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            InfoRow(Icons.Rounded.Memory, stringResource(R.string.device), "${device.manufacturer} ${device.model} (${device.device})")
+            // [2026-09-24] 优先显示**市场名**（iQOO 13），而不是型号代码（V2463A）。
+            // 取不到市场名时如实显示型号代码，并标注这是"型号代码"——
+            // 免得用户以为工具认错了机器（其实是厂商没在系统属性里给名字）。
+            run {
+                val name = device.marketName?.takeIf { it.isNotBlank() }
+                val value = buildString {
+                    append(device.manufacturer)
+                    append(' ')
+                    append(name ?: device.model)
+                    if (device.device.isNotBlank() && device.device != (name ?: device.model)) {
+                        append(" · ").append(device.device)
+                    }
+                    if (name == null && DeviceIdentity.looksLikeCode(device.model)) {
+                        append("（型号代码）")
+                    }
+                }
+                InfoRow(Icons.Rounded.Memory, stringResource(R.string.device), value)
+            }
             InfoRow(Icons.Rounded.Code, stringResource(R.string.firmware), device.buildId)
             InfoRow(Icons.Rounded.Info, stringResource(R.string.system), "Android ${device.androidRelease} (API ${device.sdk})")
             // [2026-09-24 需求] 原「系统 ABI」行改为「Android 安全补丁」。
