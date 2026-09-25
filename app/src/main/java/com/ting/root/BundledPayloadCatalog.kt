@@ -162,6 +162,26 @@ object BundledPayloadCatalog {
          * （`other_androidcve202643499_any_cc14`），那对用户毫无意义。
          */
         val shortName: String = "",
+
+        /**
+         * 这份载荷**带没带** vivo `vr.ko` 反 root 绕过。
+         *
+         * - `null` = 尚未审计（默认）。界面上不做任何标注。
+         * - `false` = **已确认不带**。界面上标红，并在用户手动选中时弹一次确认。
+         * - `true` = 已确认带。目前**没有**任何一条登记为 `true` ——
+         *   构建期的闸门（`com.kernelpack.vivo.VrKoPayloadGate`）是拿**真实字节**
+         *   现算的，不依赖这张表；这张表只负责"把已知的坏消息提前说出来"。
+         *
+         * ### 为什么不用这张表当判据
+         *
+         * 铁律：**能力和它的闸门是一对**。这张表是**展示用**的降级标注，
+         * 真正决定"能不能构建"的是字节检查 —— 表漏了一条，闸门仍然拦得住；
+         * 反过来若拿表当判据，一条漏登记就等于放过一份会被 `sys_exit` 探针杀掉的载荷。
+         *
+         * `BundledPayloadVrKoAuditTest` 会把这张表和真实字节**逐条对一遍**：
+         * 任何一份随包的 vivo 载荷若被实测为"不带绕过"却没登记 `false`，用例就红。
+         */
+        val vivoVrBypass: Boolean? = null,
     )
 
     /**
@@ -585,6 +605,9 @@ object BundledPayloadCatalog {
             displayName = "iQOO 12（Android 15）",
             model = listOf("iqoo 12"),
             kernelVersion = null,
+            // 已实测：这份载荷**不带** vr.ko 抹标记（见 BundledPayloadVrKoAuditTest）。
+            // 它没有源码，改不了；只能如实标出来，别让它看起来能用。
+            vivoVrBypass = false,
             sha256 = "6b4e788cdcb0b8c4c8607589d6f820a0b32657687dc4386127177af1f734255c",
             size = 154240,
             sourcePath = "vivo/iqoo12 A15/iQOO12.so",

@@ -169,14 +169,13 @@ class BaselineRoutingLookupTest {
     fun `★ 路由出的档位，其 ABI 系列必须等于请求的系列`() {
         for ((scheme, series) in routedCombos) {
             val id = BaselineRegistry.profileIdFor(scheme, series) ?: continue
-            val entry = BaselineRegistry.byId(id)
-            assertNotNull("$scheme × $series", entry)
+            val entry = requireNotNull(BaselineRegistry.byId(id)) { "$scheme × $series" }
             // 测试线 5.x 目前没有手写档，命中上游档时可能落在别的 5.x 上，故只比主线。
             if (series in BaselineRegistry.MAINLINE_SERIES) {
                 assertEquals(
-                    "路由把 $series 路由到了 ${entry!!.profile.abi.kernelSeries} 的档位（$id）",
+                    "路由把 $series 路由到了 ${entry.profile.abi.kernelSeries} 的档位（$id）",
                     series,
-                    entry!!.profile.abi.kernelSeries,
+                    entry.profile.abi.kernelSeries,
                 )
             }
         }
@@ -205,18 +204,19 @@ class BaselineRoutingLookupTest {
         for ((name, id) in listOf("libbs.so" to "PD2520", "libionstack.so" to "IONSTACK-P10")) {
             val f = File(jniDir, name)
             assertTrue("$name 不在 jniLibs 里，兜底链无法验证", f.exists())
-            val entry = BaselineRegistry.findByBytes(f.readBytes())
-            assertNotNull("findByBytes 认不出 $name（sha256 应当命中）", entry)
+            val entry = requireNotNull(BaselineRegistry.findByBytes(f.readBytes())) {
+                "findByBytes 认不出 $name（sha256 应当命中）"
+            }
             assertTrue(
-                "$name 被认成了 ${entry!!.profile.id}，应当是以 $id 开头的那一档",
-                entry!!.profile.id.startsWith(id),
+                "$name 被认成了 ${entry.profile.id}，应当是以 $id 开头的那一档",
+                entry.profile.id.startsWith(id),
             )
-            assertEquals("6.6", entry!!.profile.abi.kernelSeries)
+            assertEquals("6.6", entry.profile.abi.kernelSeries)
         }
     }
 
     @Test
-    fun `★ 两份族基线认不出来 —— 这是**有意的**，KernelPack 会据此安全拒绝而不是猜`() {
+    fun `★ 两份族基线认不出来 —— 这是「有意的」，KernelPack 会据此安全拒绝而不是猜`() {
         // 事实：`libbaseline_6_1.so` / `libbaseline_6_12.so` **没有登记进偏移表**
         // （见 [BaselineRegistry.BASELINE_6_1] 的说明：它们的编译期符号值没有逐项核实，
         // 所以 profile 里 symbolOffsets 是空的）。没有 sha256、也没有对应 variantLabel 的条目，

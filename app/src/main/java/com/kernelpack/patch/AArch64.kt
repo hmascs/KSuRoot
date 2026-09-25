@@ -130,4 +130,124 @@ object AArch64 {
     }
 
     private val EMPTY = IntArray(0)
+
+    // ─────────────────────────────── 立即数解码（只读特征扫描用）
+
+    /** 一条 `ADD/SUB (immediate)` 的解码结果。 */
+    data class AddImmediate(
+        /** true = 64 位（X）形式。 */
+        val sf: Boolean,
+        /** 立即数是否左移 12 位。 */
+        val shift12: Boolean,
+        /** **已经算上移位**的立即数。 */
+        val imm: Int,
+        val rn: Int,
+        val rd: Int,
+        val isSub: Boolean,
+    )
+
+    /**
+     * 解码 `ADD/SUB (immediate)`；不是这类指令返回 null。
+     *
+     * ### 为什么需要它
+     *
+     * `task + VR_TAG_B_OFF` 这种"基址 + 小偏移"clang 会折成 `add xN, xM, #0x2c`，
+     * **不是** movz/movk —— 只扫 movz/movk 会把这类点全部漏掉（实测：6.1 族基线里
+     * `add #0x2c` 有 3 处，`movz #0x2c` 一处都没有）。
+     *
+     * 编码：`sf op S 100010 sh imm12 Rn Rd`（bit 28..23 = 100010，bit 30 = S）。
+     */
+    @JvmStatic
+    fun decodeAddImmediate(insn: Int): AddImmediate? {
+        if (((insn ushr 23) and 0x3f) != 0b100010) return null
+        if (((insn ushr 29) and 0x1) != 0) return null // bit29 必须为 0（bit30 是 S）
+        val sf = ((insn ushr 31) and 1) == 1
+        val shift12 = ((insn ushr 22) and 1) == 1
+        val raw = (insn ushr 10) and 0xfff
+        return AddImmediate(
+            sf = sf,
+            shift12 = shift12,
+            imm = if (shift12) raw shl 12 else raw,
+            rn = (insn ushr 5) and 0x1f,
+            rd = insn and 0x1f,
+            isSub = ((insn ushr 30) and 1) == 1,
+        )
+    }
+
+    /** 一条逻辑立即数指令（`AND/ORR/EOR/ANDS` 立即数形式）的解码结果。 */
+    data class LogicalImmediate(
+        /** 0 = AND，1 = ORR，2 = EOR，3 = ANDS。 */
+        val opc: Int,
+        val sf: Boolean,
+        /**
+         * 解码出来的位掩码，即指令里那个"立即数"本体。
+         *
+         * `and x2, x0, #0xfffffffffffffbff`（清掉 `0x400` 这一位）在这里是
+         * [bitmask] = `0xfffffffffffffbff`。AArch64 **没有** `BIC (immediate)`，
+         * 所以"清某一位"一定长成 `AND` + 取反后的掩码。
+         */
+        val bitmask: Long,
+        val rn: Int,
+        val rd: Int,
+    )
+
+    /**
+     * 解码 `AND/ORR/EOR/ANDS (immediate)`；不是这类指令、或掩码编码非法时返回 null。
+     *
+     * 编码：`sf opc 100100 N immr imms Rn Rd`（bit 28..23 = 100100）。
+     */
+    @JvmStatic
+    fun decodeLogicalImmediate(insn: Int): LogicalImmediate? {
+        if (((insn ushr 23) and 0x3f) != 0b100100) return null
+        val sf = ((insn ushr 31) and 1) == 1
+        val width = if (sf) 64 else 32
+        val mask = decodeBitMasks(
+            n = (insn ushr 22) and 1,
+            immr = (insn ushr 16) and 0x3f,
+            imms = (insn ushr 10) and 0x3f,
+            width = width,
+        ) ?: return null
+        return LogicalImmediate(
+            opc = (insn ushr 29) and 0x3,
+            sf = sf,
+            bitmask = mask,
+            rn = (insn ushr 5) and 0x1f,
+            rd = insn and 0x1f,
+        )
+    }
+
+    /**
+     * AArch64 `DecodeBitMasks(N, imms, immr)`：把三个字段还原成那个重复位模式。
+     *
+     * 位模式**不是**任意 64 位数 —— 必须是"2^len 位的元素循环重复"。所以
+     * `0xfffffffffffffbff`（除 bit 10 外全 1）看着不像合法掩码，实际是
+     * `len = 6` 时元素 `0b111`（3 位）右旋 58 位的重复结果。手算极易出错，
+     * 必须照伪码实现 —— 本实现已用 `llvm-objdump` 实际打出的
+     * `and x2, x0, #0xfffffffffffffbff` / `#0xfffffffffffff7ff` 两条指令逐条比对过。
+     *
+     * @return 位模式；字段非法（`len < 1` 或元素宽度超过寄存器）时返回 null。
+     */
+    @JvmStatic
+    fun decodeBitMasks(n: Int, immr: Int, imms: Int, width: Int): Long? {
+        val bits = (n shl 6) or (imms.inv() and 0x3f)
+        if (bits == 0) return null
+        val len = 31 - Integer.numberOfLeadingZeros(bits)
+        if (len < 1) return null
+        val esize = 1 shl len
+        if (esize > width) return null
+        val s = imms and (esize - 1)
+        val r = (immr and (esize - 1)) % esize
+        // ⚠️ JVM 的 `shl` 把移位数按低 6 位取模：`1L shl 64` == 1L，不是 2^64。
+        //    所以 esize = 64 时必须显式写 -1L，否则 full 变成 0，掩码被整个 and 成 0。
+        val full = if (esize == 64) -1L else (1L shl esize) - 1
+        var element = if (s == esize - 1) full else (1L shl (s + 1)) - 1
+        if (r != 0) element = ((element ushr r) or (element shl (esize - r))) and full
+        var mask = 0L
+        var i = 0
+        while (i < width) {
+            mask = mask or (element shl i)
+            i += esize
+        }
+        return if (width == 64) mask else mask and 0xffffffffL
+    }
 }

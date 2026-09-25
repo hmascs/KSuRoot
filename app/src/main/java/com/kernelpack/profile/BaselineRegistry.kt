@@ -294,11 +294,25 @@ object BaselineRegistry {
      *   `src/targets/tokay-CP2A.260605.012/target.h`（`pi_lock=0x924`，6.1 族）
      * - **载荷源码与构建方式**：`boxiaolanya2008/CVE-2026-43499-Neo11Plus`
      *   的 `exploit/src/`（本项目主打方案的上游）
-     * - 用容器内 NDK r30 编出 `libbaseline_6_1.so`（135184 B）
+     * - 用容器内 NDK r30 编出 `libbaseline_6_1.so`
+     *
+     * ### 2026-09-25 重编（两个缺陷）
+     *
+     * 产物由 135184 B → **175792 B**，可重放配方见 `载荷构建/README.md`。
+     *
+     * 1. **不带 vr.ko 反 root 绕过**：蓝厂机型上会"提权成功后被子进程探针杀掉"。
+     *    换成带 `patch_task_vr_tag()` 的 `root.c` 后，`strings | grep -c "vr detag"` = 2。
+     * 2. **旧产物根本 load 不起来**（重编时才发现的）：旧构建没把 `root.c` /
+     *    `io_daemon.c` 编进去，也没提供 `wallpaper_blob.S` 需要的
+     *    `assets/wallpaper.webp`，于是 `install_android_root` / `io_daemon_main` /
+     *    `embedded_wallpaper_start` 全是**指向 UND 的动态重定位** ——
+     *    `dlopen` 解析不了 `GLOB_DAT` 会直接失败，压根走不到抹标记那一步。
+     *    现在 `NEEDED` 只剩 `libdl.so` / `libc.so`。
      *
      * ### 可信度
      *
-     * `beta = true`：编译产物合法（ELF/init_array 已验证），但**未在真机上跑过**。
+     * `beta = true`：编译产物合法（ELF/init_array 已验证，动态符号表已无 UND），
+     * 但**未在真机上跑过** —— 包括 `vr.ko` 抹标记，只有"代码编进去了"这一级的证据。
      */
     val BASELINE_6_1: BaselineProfile = BaselineProfile(
         id = "baseline-6-1-tokay",

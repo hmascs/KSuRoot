@@ -110,6 +110,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.draw.clip
 import com.kernelpack.offsets.GhostLockOffsetsIo
+import com.kernelpack.ota.OtaPayloadExtractor
 import com.kernelpack.offsets.OffsetsDocument
 import com.ting.root.ui.theme.Radii
 import top.yukonga.miuix.kmp.basic.InputField
@@ -373,6 +374,7 @@ private fun RootApp(
     val installState by installViewModel.state.collectAsStateWithLifecycle()
     val history by installViewModel.history.collectAsStateWithLifecycle()
     val buildState by builderViewModel.state.collectAsStateWithLifecycle()
+    val otaState by builderViewModel.otaState.collectAsStateWithLifecycle()
     var selectedPage by remember { mutableStateOf(AppPage.Overview) }
     var showInstallConfirmation by remember { mutableStateOf(false) }
     // 「自动匹配结果」弹窗。**只有 7 月及以后补丁（LIKELY_FIXED）才弹**：
@@ -735,7 +737,11 @@ private fun RootApp(
                         AppPage.Builder -> PayloadBuilderPage(
                             padding = contentPadding,
                             state = buildState,
+                            otaState = otaState,
                             onPickBootImage = { bootImageLauncher.launch(arrayOf("*/*")) },
+                            onParseOtaLink = { builderViewModel.parseOtaLink(it) },
+                            onCancelOtaParse = { builderViewModel.cancelOtaParse() },
+                            onClearOtaError = { builderViewModel.clearOtaError() },
                             onBuild = { showSchemeSheet = true },
                             // 被 5.x 开关拦下时，一键跳到设置页内核支持分组
                             onOpenTestKernelSetting = { selectedPage = AppPage.Settings },
@@ -1294,6 +1300,10 @@ private fun CustomPayloadCard(
 ) {
     val context = LocalContext.current
     var detailSheet by remember { mutableStateOf<PayloadSource?>(null) }
+    // 用户点了一份**已实测不带 vr.ko 绕过**的载荷时，先拦一下问一句。
+    // 为什么不是直接禁用：那是他的机器，他可能知道自己在干什么（比如内核根本没带 vr.ko）。
+    // 但必须让他知道"选这份意味着什么" —— 静默选中等于把一个必炸的组合伪装成正常选项。
+    var vrKoPendingLibrary by remember { mutableStateOf<String?>(null) }
     // 本机自动匹配会选中的那份载荷。`remember` 一次：弹层每次开合都重跑
     // `DeviceSnapshot.current()`（读 /proc + 正则）是不必要的开销。
     val defaultLibrary = remember {
@@ -1403,10 +1413,46 @@ private fun CustomPayloadCard(
         kernelBadges = true,
         chipBadge = null,
         selectedLibrary = manualPayload,
-        onSelect = onManualPayloadChanged,
+        onSelect = { library ->
+            val lacksBypass = library != null && entries.any { entry ->
+                entry.variants.any { it.library == library && it.vivoVrBypass == false }
+            }
+            if (lacksBypass) vrKoPendingLibrary = library else onManualPayloadChanged(library)
+        },
         selectedLabel = manualLabel,
         onDismiss = { detailSheet = null },
     )
+
+    // 降级标注的第二次确认。措辞里必须带上**后果**，不能只说"该载荷未适配"。
+    vrKoPendingLibrary?.let { library ->
+        AlertDialog(
+            onDismissRequest = { vrKoPendingLibrary = null },
+            icon = { Icon(Icons.Rounded.Error, contentDescription = null) },
+            title = {
+                DialogDimAmount(0.24f)
+                Text("这份载荷没有 vivo 反 vr.ko 绕过")
+            },
+            text = {
+                Text(
+                    text = "在带 vr.ko 的蓝厂机型上，它会**提权成功之后**被 sys_exit 探针杀掉：" +
+                        "看起来像「提权失败」，其实标记根本没抹。\n\n" +
+                        "如果你确定这台机器的内核没带 vr.ko，可以继续。",
+                    style = MiuixTheme.textStyles.footnote1,
+                )
+            },
+            confirmButton = {
+                FilledTonalButton(
+                    onClick = {
+                        vrKoPendingLibrary = null
+                        onManualPayloadChanged(library)
+                    },
+                ) { Text("仍要选用") }
+            },
+            dismissButton = {
+                TextButton(onClick = { vrKoPendingLibrary = null }) { Text("换一份") }
+            },
+        )
+    }
 }
 
 @Composable
@@ -1551,6 +1597,12 @@ private data class PayloadVariant(
     val shortName: String = "",
     val sha256: String = "",
     val size: Long = 0L,
+    /**
+     * 这份载荷带没带 vivo `vr.ko` 反 root 绕过；`null` = 尚未审计。
+     *
+     * `false` 时必须在行内标红、并在选中时弹一次确认 —— 见 [PayloadVariant] 的使用点。
+     */
+    val vivoVrBypass: Boolean? = null,
 ) {
     /**
      * 供搜索用的全部文本（小写）。
@@ -1691,6 +1743,7 @@ private fun bundledSupportedDevices(defaultLibrary: String): List<SupportedDevic
                             shortName = entry.shortName,
                             sha256 = entry.sha256,
                             size = entry.size,
+                            vivoVrBypass = entry.vivoVrBypass,
                         )
                     }
                     // 排序必须放在 map **之后**：比较器比的是 PayloadVariant，
@@ -2009,6 +2062,15 @@ private fun PayloadSourceDetailSheet(
                                                 color = if (checked) MiuixTheme.colorScheme.onPrimaryContainer
                                                 else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                             )
+                                            // 已实测不带 vr.ko 绕过：标红。放在"本机推荐"**之前** ——
+                                            // 一条"推荐"和一条"会炸"同时出现时，先看到哪条决定了他会不会点。
+                                            if (variant.vivoVrBypass == false) {
+                                                Text(
+                                                    stringResource(R.string.payload_variant_no_vr_ko),
+                                                    style = MiuixTheme.textStyles.footnote2,
+                                                    color = MiuixTheme.colorScheme.error,
+                                                )
+                                            }
                                             if (variant.library == entry.defaultLibrary) {
                                                 Text(
                                                     stringResource(R.string.payload_detail_recommended),
@@ -3585,7 +3647,13 @@ private fun PayloadSchemeSheet(
 private fun PayloadBuilderPage(
     padding: PaddingValues,
     state: PayloadBuildState,
+    /** 「解析完整包链接」的状态与动作。 */
+    otaState: OtaLinkState,
     onPickBootImage: () -> Unit,
+    /** 提交一个完整包直链去解析。 */
+    onParseOtaLink: (String) -> Unit,
+    onCancelOtaParse: () -> Unit,
+    onClearOtaError: () -> Unit,
     onBuild: () -> Unit,
     onApplyAsPayload: () -> Unit,
     onExportLibrary: () -> Unit,
@@ -3598,6 +3666,9 @@ private fun PayloadBuilderPage(
     val context = LocalContext.current
     val layoutDirection = LocalLayoutDirection.current
     val logScroll = rememberScrollState()
+    // 「解析完整包链接」对话框的开关。定义放在这里是因为下面的按钮要用到它，
+    // 而对话框本体在函数体更靠后的位置（和其它弹层排在一起）。
+    var showOta by remember { mutableStateOf(false) }
 
     // ── offsets.json 导入（阶段 1 的界面入口）──────────────────────────
     // 解析全部交给 [GhostLockOffsetsIo]；这里只负责选文件与呈现结果。
@@ -3681,12 +3752,111 @@ private fun PayloadBuilderPage(
 
     // ── 硬阻断弹窗（P1 的规矩：阻断必须弹窗，不能只把字标红）──
     // 不同类别给不同的**可执行动作**，而不是把一大段原文丢给用户自己读。
+    // ── 解析完整包链接 ────────────────────────────────────────────────
+    // 这条路径**不是**"下载整个包再解压"：它用 HTTP Range 只取 ZIP 中央目录、
+    // payload 清单，以及 boot 分区真正用到的那几十 MiB。
+    // 服务器不支持 Range 时**直接拒绝**，不会在用户没同意的情况下下几个 GB。
+    var otaUrl by remember { mutableStateOf("") }
+    // 解析失败时把用户填过的链接回填回来，省得他重打一遍
+    LaunchedEffect(otaState.url) {
+        if (otaState.url.isNotEmpty()) otaUrl = otaState.url
+    }
+    val otaLogScroll = rememberScrollState()
+    LaunchedEffect(otaState.log.size) {
+        if (otaState.log.isNotEmpty()) otaLogScroll.scrollTo(otaLogScroll.maxValue)
+    }
+    OverlayDialog(
+        show = showOta,
+        // 关掉对话框**不**取消解析：任务挂在 ViewModel 上，
+        // 关掉只是看不到日志，构建页上仍有一条状态行。
+        onDismissRequest = { showOta = false },
+        title = stringResource(R.string.builder_ota_title),
+        renderInRootScaffold = false,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                text = stringResource(R.string.builder_ota_desc),
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+            InputField(
+                query = otaUrl,
+                onQueryChange = {
+                    otaUrl = it
+                    onClearOtaError()
+                },
+                onSearch = { },
+                expanded = false,
+                onExpandedChange = { },
+                modifier = Modifier.fillMaxWidth(),
+                label = stringResource(R.string.builder_ota_hint),
+            )
+            otaState.error?.let { err ->
+                Text(
+                    text = err,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.error,
+                )
+            }
+            if (otaState.resultName.isNotBlank()) {
+                Text(
+                    text = stringResource(
+                        R.string.builder_ota_done,
+                        otaState.resultName,
+                        OtaPayloadExtractor.formatSize(otaState.resultSize),
+                    ),
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.primary,
+                )
+            }
+            if (otaState.log.isNotEmpty()) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .padding(Spacing.card)
+                            .heightIn(max = 160.dp)
+                            .verticalScroll(otaLogScroll),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        for (line in otaState.log) {
+                            Text(
+                                text = line,
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            )
+                        }
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                TextButton(
+                    onClick = { showOta = false },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(stringResource(R.string.builder_ota_close))
+                }
+                Button(
+                    onClick = { onParseOtaLink(otaUrl) },
+                    enabled = !otaState.running && otaUrl.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColorsPrimary(),
+                ) {
+                    Text(stringResource(R.string.builder_ota_run))
+                }
+            }
+        }
+    }
+
     state.blockedKind?.let { kind ->
         val title = when (kind) {
             BuildBlockKind.TEST_KERNEL_DISABLED -> stringResource(R.string.test_kernel_blocked_title)
             BuildBlockKind.BASELINE_NOT_REGISTERED -> "该内核系列还没有基线产物"
             BuildBlockKind.ABI_CONFLICT -> "基线 ABI 冲突，已拒绝构建"
             BuildBlockKind.UNKNOWN_KERNEL -> "无法识别内核版本"
+            BuildBlockKind.VIVO_VR_KO_MISSING -> "这份载荷没有 vivo 反 vr.ko 绕过"
             BuildBlockKind.OTHER -> "构建未完成"
         }
         AlertDialog(
@@ -3717,6 +3887,12 @@ private fun PayloadBuilderPage(
                     BuildBlockKind.BASELINE_NOT_REGISTERED -> FilledTonalButton(
                         onClick = onDismissBlock,
                     ) { Text("知道了") }
+
+                    // 这一类缺的**不是设置、也不是数据，而是载荷本身** ——
+                    // 所以给的动作是"去换一份"，而不是"知道了"。
+                    BuildBlockKind.VIVO_VR_KO_MISSING -> FilledTonalButton(
+                        onClick = onDismissBlock,
+                    ) { Text("去换一份载荷") }
 
                     else -> FilledTonalButton(onClick = onDismissBlock) {
                         Text(stringResource(R.string.action_confirm))
@@ -3836,6 +4012,62 @@ private fun PayloadBuilderPage(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(stringResource(R.string.builder_pick_boot))
+                    }
+                    // 第三条路：不要求用户先自己去固件包里翻出 boot.img。
+                    // 完整包动辄 4–8 GiB，所以走的是 HTTP Range 只取需要的那几块
+                    // —— 代价与边界见 com.kernelpack.ota.OtaPayloadExtractor。
+                    Button(
+                        onClick = { showOta = true },
+                        enabled = !state.busy && !otaState.running,
+                        modifier = Modifier.fillMaxWidth(),
+                        minHeight = BuilderButtonHeight,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Link,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(stringResource(R.string.builder_ota))
+                    }
+                    if (otaState.running) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            InfiniteProgressIndicator(
+                                size = 18.dp,
+                                color = MiuixTheme.colorScheme.primary,
+                                strokeWidth = 2.dp,
+                                orbitingDotSize = 2.dp,
+                            )
+                            Text(
+                                text = stringResource(R.string.builder_ota_running),
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = onCancelOtaParse) {
+                                Text(stringResource(R.string.action_cancel))
+                            }
+                        }
+                    } else if (otaState.error != null) {
+                        Text(
+                            text = otaState.error,
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.error,
+                        )
+                    } else if (otaState.resultName.isNotBlank()) {
+                        Text(
+                            text = stringResource(
+                                R.string.builder_ota_done,
+                                otaState.resultName,
+                                OtaPayloadExtractor.formatSize(otaState.resultSize),
+                            ),
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.primary,
+                        )
                     }
                     Button(
                         onClick = onBuild,

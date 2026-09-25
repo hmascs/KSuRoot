@@ -44,16 +44,20 @@ app/src/main/java/com/kernelpack/
 ├── offsets/                   ★ GhostLock offsets.json 互通
 │                              （schema / IO / 合并 / 键映射 / 统一解析）
 ├── offset/                    OffsetProvenance（逐条偏移的来源与可信度）· PselectFeasibility
-├── vivo/                      VrKoBypass（蓝厂 vr.ko 反 root 绕过，数据层）
+├── vivo/                      VrKoBypass（vr.ko 判定）· VrKoPayloadCheck（字节判据）
+│                              · VrKoPayloadGate（蓝厂方案专属闸门）
+├── ota/                       ★ 「解析完整包链接」：HTTP Range 只取需要的块
+│                              HttpRangeReader · ZipCentralDirectory · PayloadBinUtils
+│                              · XzDecoder · OtaPayloadExtractor
 └── export/                    target.h / offsets.json 导出
 
-app/src/test/java/com/kernelpack/    对应的单测（21 个文件）
+app/src/test/java/com/kernelpack/    对应的单测（26 个文件）
 
 app/src/main/jniLibs/arm64-v8a/
-├── libbaseline_6_1.so         ★ 自编 6.1 族基线（结构体偏移取 6_1 族）
-├── libbaseline_6_12.so        ★ 自编 6.12 族基线
-├── libionstack.so             通用方案 6.6 基线
-└── libbs.so                   蓝厂方案 6.6 基线（all-in-one）
+├── libbaseline_6_1.so         ★ 自编 6.1 族基线（带 vr.ko 抹标记，配方见 载荷构建/）
+├── libbaseline_6_12.so        ★ 自编 6.12 族基线（同上）
+├── libionstack.so             通用方案 6.6 基线（**不带** vr.ko，本就不该带）
+└── libbs.so                   蓝厂方案 6.6 基线（all-in-one，自带 vr.ko 抹标记）
 
 app/src/main/assets/
 └── GL_LICENSE_Apache2.txt     GhostLock 上游许可证（Apache-2.0）

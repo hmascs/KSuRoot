@@ -59,7 +59,7 @@ class BaselineFamilyRoutingTest {
     }
 
     @Test
-    fun `★ 被路由到的两份自编基线必须真的存在于 jniLibs —— 防止"建好没接线"`() {
+    fun `★ 被路由到的两份自编基线必须真的存在于 jniLibs —— 防止「建好没接线」`() {
         // 这条是本组用例的核心：光断言"函数返回值对"不够，
         // 还要断言那个文件**真的在包里**，否则就是把用户引向一个不存在的库。
         for (name in listOf(libs.SIX_ONE, libs.SIX_TWELVE)) {

@@ -161,6 +161,17 @@
     <string name="builder_loaded">boot.img %1$d KB · 基础库 %2$d KB</string>
     <string name="builder_read_failed">读取所选文件失败</string>
     <string name="builder_no_input">请先选择 boot.img</string>
+    <string name="builder_ota">解析完整包链接</string>
+    <string name="builder_ota_title">解析完整包链接</string>
+    <string name="builder_ota_desc">粘贴完整包（OTA ZIP）的直链。应用只取需要的部分 —— ZIP 中央目录、payload 清单，以及 boot 分区用到的那几十 MiB，不会下载整个包（通常 4–8 GiB）。\n服务器需要支持 HTTP Range 请求；不支持时会直接拒绝，而不是偷偷下完整个包。</string>
+    <string name="builder_ota_hint">完整包直链（http / https）</string>
+    <string name="builder_ota_run">开始解析</string>
+    <string name="builder_ota_close">关闭</string>
+    <string name="builder_ota_running">正在解析完整包…</string>
+    <string name="builder_ota_started">开始解析…</string>
+    <string name="builder_ota_done">已解出 %1$s（%2$s）—— 可以点「开始构建」了</string>
+    <string name="builder_ota_bad_url">只接受 http / https 开头的链接</string>
+    <string name="builder_input_gone">之前解析出来的镜像已经被系统清掉了，请重新解析一次</string>
     <string name="builder_no_output">偏移已解析，但动态库没有打包成功（详见日志）</string>
     <string name="builder_kernel">内核: %1$s（%2$s）</string>
     <string name="builder_base">链接基址: %1$s</string>
@@ -234,6 +245,9 @@
     <string name="root_handoff_card_action">选择管理器并移交</string>
     <string name="root_handoff_card_action_disabled">暂不可移交</string>
     <string name="builder_detected_kernel">实测内核：%1$s</string>
+    <string name="payload_variant_no_vr_ko">不带 vivo 反 vr.ko 绕过 —— 蓝厂内核上会被杀</string>
+    <string name="builder_vr_ko_ok">已确认这份载荷带 vr.ko 抹标记 —— 会在 W2 读 uid 之前把 task 标记清掉</string>
+    <string name="builder_vr_ko_hint">这台机器像是 vivo / iQOO。若内核带 vr.ko，请改选**蓝厂方案** —— 通用方案的载荷没有 vr.ko 绕过，提权后的 shell 会被 sys_exit 探针杀掉。</string>
     <string name="root_handoff_running_body">正在执行 late-load 命令。可能会弹出 root 授权框，请点允许。</string>
     <string name="kernelsu_card_title">KernelSU</string>
     <string name="language_korean" translatable="false">한국어</string>

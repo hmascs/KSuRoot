@@ -277,6 +277,17 @@
     <string name="builder_loaded">boot.img %1$d KB · base library %2$d KB</string>
     <string name="builder_read_failed">Could not read the selected file</string>
     <string name="builder_no_input">Choose a boot.img first</string>
+    <string name="builder_ota">Parse OTA link</string>
+    <string name="builder_ota_title">Parse OTA link</string>
+    <string name="builder_ota_desc">Paste a direct link to a full OTA ZIP. Only the parts that are needed are fetched — the ZIP central directory, the payload manifest, and the few tens of MiB the boot partition occupies — not the whole package (usually 4–8 GiB).\nThe server must support HTTP Range requests; if it does not, the request is refused rather than silently downloading everything.</string>
+    <string name="builder_ota_hint">Direct link to the full package (http / https)</string>
+    <string name="builder_ota_run">Parse</string>
+    <string name="builder_ota_close">Close</string>
+    <string name="builder_ota_running">Parsing the full package…</string>
+    <string name="builder_ota_started">Starting…</string>
+    <string name="builder_ota_done">Extracted %1$s (%2$s) — you can press Build payload now</string>
+    <string name="builder_ota_bad_url">Only http / https links are accepted</string>
+    <string name="builder_input_gone">The image extracted earlier was cleared by the system. Please parse the link again.</string>
     <string name="builder_no_output">Offsets were resolved but the library was not packed (see the log)</string>
     <string name="builder_kernel">Kernel: %1$s (%2$s)</string>
     <string name="builder_base">Link base: %1$s</string>
@@ -351,6 +362,9 @@
     <string name="root_handoff_card_action">Choose manager and hand over</string>
     <string name="root_handoff_card_action_disabled">Not available yet</string>
     <string name="builder_detected_kernel">Detected kernel: %1$s</string>
+    <string name="payload_variant_no_vr_ko">No vivo vr.ko bypass — will be killed on vivo kernels</string>
+    <string name="builder_vr_ko_ok">vr.ko bypass present — this payload clears the task markers before the W2 uid check</string>
+    <string name="builder_vr_ko_hint">This looks like a vivo/iQOO device. If the kernel carries vr.ko, switch to the vivo payload scheme — a universal payload has no vr.ko bypass and the root shell will be killed by the sys_exit probe.</string>
     <string name="root_handoff_running_body">Running the late-load command. A root authorization prompt may appear - please confirm it.</string>
     <string name="payload_note_libbs">release v1.3.0, vivo/iQOO branch, adds one extra vr.ko anti-root bypass</string>
     <string name="payload_note_kernel_unknown">%1$d payload(s) in this list have no readable kernel version — pick those manually, they are never auto-matched</string>

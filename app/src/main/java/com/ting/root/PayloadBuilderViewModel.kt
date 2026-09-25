@@ -3,6 +3,7 @@ package com.ting.root
 import android.app.Application
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kernelpack.KernelPack
@@ -13,11 +14,17 @@ import com.kernelpack.boot.BootImageParser
 import com.kernelpack.boot.KernelDecompressor
 import com.kernelpack.kallsyms.KallsymsFinder
 import com.kernelpack.kallsyms.KallsymsOptions
+import com.kernelpack.ota.OtaPayloadExtractor
 import com.kernelpack.policy.KernelSchemeSelector
 import com.kernelpack.profile.BaselineScheme
 import com.kernelpack.profile.BaselineRegistry
 import com.kernelpack.profile.BaselineProfiles
+import com.kernelpack.vivo.VrKoBypass
+import com.kernelpack.vivo.VrKoGateDecision
+import com.kernelpack.vivo.VrKoPayloadGate
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -98,6 +105,15 @@ enum class BuildBlockKind {
     /** 认不出内核版本。 */
     UNKNOWN_KERNEL,
 
+    /**
+     * 蓝厂方案下，这份载荷**没有** `vr.ko` 反 root 绕过。
+     *
+     * 这是**唯一**一类"载荷本身不合格"的阻断：别的几类都是"这台机器的数据不够 /
+     * 设置没开"，换一份载荷就好的是这一类。所以在 UI 上必须给"换一份"的指引，
+     * 而不是像 [BASELINE_NOT_REGISTERED] 那样只能说"知道了"。
+     */
+    VIVO_VR_KO_MISSING,
+
     /** 其它（IO、载荷读不到等）。 */
     OTHER,
 }
@@ -121,6 +137,8 @@ internal fun classifyBlock(title: String): BuildBlockKind = when {
             BuildBlockKind.ABI_CONFLICT
         title.contains("认不出") || title.contains("无法识别") || title.contains("内核版本") ->
             BuildBlockKind.UNKNOWN_KERNEL
+        title.contains("vr.ko") || title.contains("vr ko") ->
+            BuildBlockKind.VIVO_VR_KO_MISSING
         else -> BuildBlockKind.OTHER
     }
 
@@ -182,6 +200,25 @@ data class PayloadBuildState(
 }
 
 /**
+ * 「解析完整包链接」的可观察状态。
+ *
+ * 与 [PayloadBuildState] 分开：这两件事**可以同时发生**（构建在跑的时候
+ * 用户完全可以再去解一个链接），共用一个状态机会互相踩。
+ */
+data class OtaLinkState(
+    val running: Boolean = false,
+    /** 用户填的链接；对话框重开时回填。 */
+    val url: String = "",
+    /** 解析过程的日志（最新的在最后）。 */
+    val log: List<String> = emptyList(),
+    /** 最近一次失败的说明。 */
+    val error: String? = null,
+    /** 最近一次成功解出的镜像：显示名与大小。 */
+    val resultName: String = "",
+    val resultSize: Long = 0,
+)
+
+/**
  * 「载荷构建」页面的逻辑：**boot.img → 内核偏移 → 打补丁的动态库**。
  *
  * 真正的算法全部来自 `com.kernelpack`（纯 Kotlin：不依赖 Android、不开线程、
@@ -206,15 +243,132 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
     /** 记住用户选的 boot.img，配置变化后不必重选。 */
     private var bootUri: Uri? = null
 
+    /**
+     * 输入也可以是一个**本地文件**而不是 `content://` URI ——
+     * 「解析完整包链接」解出来的镜像就在应用私有目录里，没有对应的 content URI。
+     *
+     * 两者**互斥**：谁最后被设置，谁就是本次输入。留着一个指向旧输入的字段
+     * 迟早会出现"界面上写着 A、实际构建用的是 B"。
+     */
+    private var bootFile: File? = null
+
+    private val mutableOtaState = MutableStateFlow(OtaLinkState())
+    val otaState: StateFlow<OtaLinkState> = mutableOtaState.asStateFlow()
+    private var otaJob: Job? = null
+
     fun bootImageName(): String = mutableState.value.sourceName
 
     fun rememberBootImage(uri: Uri, name: String, size: Long) {
         bootUri = uri
+        bootFile = null
         mutableState.value = mutableState.value.copy(
             sourceName = name,
             sourceSize = size,
             error = null,
         )
+    }
+
+    /** 记住一个**本地文件**作为输入（「解析完整包链接」的产物走这条路）。 */
+    fun rememberBootImageFile(file: File, name: String, size: Long) {
+        bootFile = file
+        bootUri = null
+        mutableState.value = mutableState.value.copy(
+            sourceName = name,
+            sourceSize = size,
+            error = null,
+        )
+    }
+
+    // ────────────────────────── 解析完整包链接 ──────────────────────────
+
+    /** 用户改了链接输入框 / 关掉错误提示时调用。 */
+    fun clearOtaError() {
+        if (mutableOtaState.value.error != null) {
+            mutableOtaState.value = mutableOtaState.value.copy(error = null)
+        }
+    }
+
+    fun cancelOtaParse() {
+        otaJob?.cancel()
+        otaJob = null
+        mutableOtaState.value = mutableOtaState.value.copy(running = false)
+    }
+
+    /**
+     * 解析一个**完整包链接**，把里面的 boot 镜像解出来并设为构建输入。
+     *
+     * 只接受 `http` / `https`。整个过程靠 HTTP `Range` 请求**只取需要的那几块**
+     * —— 完整包 4–8 GiB，全下下来在手机上是不现实的。
+     *
+     * 成功之后**不在这里预校验**镜像是否可用：那是 [build] 的职责，
+     * 它已经有完整的格式识别与内核版本判定。在这里再判一次要么是重复劳动，
+     * 要么是拿半个数组做判断 —— 后者会给出**错的**结论。
+     */
+    fun parseOtaLink(rawUrl: String) {
+        val app = getApplication<Application>()
+        val url = rawUrl.trim()
+        if (otaJob?.isActive == true) return
+        if (!url.startsWith("http://", true) && !url.startsWith("https://", true)) {
+            mutableOtaState.value = OtaLinkState(
+                url = url, error = app.getString(R.string.builder_ota_bad_url),
+            )
+            return
+        }
+        otaJob = viewModelScope.launch {
+            mutableOtaState.value = OtaLinkState(running = true, url = url)
+            val lines = ArrayList<String>(64)
+            var pending = 0
+            fun publish(line: String) {
+                lines.add(line)
+                pending++
+                if (pending >= 3) {
+                    pending = 0
+                    mutableOtaState.value =
+                        mutableOtaState.value.copy(log = lines.takeLast(MAX_LOG_LINES))
+                }
+            }
+            try {
+                val dir = otaWorkDir(app)
+                withContext(Dispatchers.IO) { purgeStaleOtaFiles(dir, bootFile) }
+                publish(app.getString(R.string.builder_ota_started))
+                val result = OtaPayloadExtractor.extractPartitions(url, dir) { publish(it) }
+                val file = result.bootFile
+                val size = file.length()
+                rememberBootImageFile(file, file.name, size)
+                mutableOtaState.value = OtaLinkState(
+                    url = url,
+                    log = lines.takeLast(MAX_LOG_LINES),
+                    resultName = file.name,
+                    resultSize = size,
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                mutableOtaState.value = mutableOtaState.value.copy(
+                    running = false,
+                    log = lines.takeLast(MAX_LOG_LINES),
+                    error = e.message ?: e.javaClass.simpleName,
+                )
+            }
+        }
+    }
+
+    private fun otaWorkDir(app: Application): File = File(app.cacheDir, OTA_CACHE_DIR)
+
+    /**
+     * 清掉上一次解析留下的镜像。
+     *
+     * boot 镜像动辄 96 MiB，留在 `cacheDir` 里会一直堆到系统来清 ——
+     * 而系统清理是不打招呼的，用户下次点构建只会看到"文件不见了"。
+     * 所以这里**主动**只留一份，并且跳过当前正在用的那一份。
+     */
+    private fun purgeStaleOtaFiles(dir: File, keep: File?) {
+        val files = dir.listFiles() ?: return
+        for (f in files) {
+            if (!f.name.startsWith(OTA_FILE_PREFIX)) continue
+            if (keep != null && f.absolutePath == keep.absolutePath) continue
+            f.delete()
+        }
     }
 
     fun outputBytes(): ByteArray? = outputLibrary
@@ -229,8 +383,9 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
      */
     fun build(scheme: PayloadScheme) {
         val uri = bootUri
+        val file = bootFile
         val app = getApplication<Application>()
-        if (uri == null) {
+        if (uri == null && file == null) {
             mutableState.value = mutableState.value.copy(
                 phase = PayloadBuildPhase.Failed,
                 error = app.getString(R.string.builder_no_input),
@@ -265,8 +420,20 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
             try {
                 publish(app.getString(R.string.builder_phase_reading, mutableState.value.sourceName))
                 val bootBytes = withContext(Dispatchers.IO) {
-                    app.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                        ?: error(app.getString(R.string.builder_read_failed))
+                    when {
+                        // 「解析完整包链接」的产物在应用私有目录里，直接读文件。
+                        // 不走 contentResolver：`file://` 在部分 ROM 上会被直接拒掉，
+                        // 而那个失败信息对用户毫无意义。
+                        file != null -> {
+                            if (!file.isFile) error(app.getString(R.string.builder_input_gone))
+                            file.readBytes()
+                        }
+
+                        uri != null -> app.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                            ?: error(app.getString(R.string.builder_read_failed))
+
+                        else -> error(app.getString(R.string.builder_no_input))
+                    }
                 }
                 // ── 构建前：先检查内核版本，再决定用哪套方案 ──────────────
                 // 这一步刻意放在**打补丁之前**：认不出内核版本、或者 5.x 支持没开时，
@@ -344,6 +511,57 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
                     baseLibrarySize = baseLibrary.size.toLong(),
                     baseLibrarySha256 = baseSha,
                 )
+                // ── 蓝厂方案专属闸门：这份载荷到底带没带 vr.ko 抹标记 ──
+                //
+                // 为什么必须在**构建阶段**拦，而不是装上去再说：抹标记是往内核内存写，
+                // 只有载荷 C 侧那套 pipe_phys_write_data / pipe_write64 原语做得到，
+                // Kotlin 侧没有这个原语（见 com.kernelpack.vivo.VrKoBypass 的类注释）。
+                // 所以"这份载荷带没带绕过"是**装之前唯一查得了的事** —— 不查，
+                // 在带 vr.ko 的机器上就会得到"提权成功、子进程随即被 sys_exit 探针杀掉"。
+                //
+                // 通用方案**不触发**这条检查：VrKoPayloadGate 在 scheme != VIVO 时
+                // 直接短路返回 NotApplicable，连 ELF 都不解析。
+                val vrDecision = withContext(Dispatchers.Default) {
+                    VrKoPayloadGate.decide(
+                        scheme = scheme.baselineScheme,
+                        libraryName = lastBaseLibraryName ?: scheme.library,
+                        bytes = baseLibrary,
+                    )
+                }
+                if (vrDecision is VrKoGateDecision.Blocked) {
+                    publish("[X] ${vrDecision.title}")
+                    vrDecision.detail.forEach { publish("    $it") }
+                    publish("    ${vrDecision.remedy}")
+                    mutableState.value = mutableState.value.copy(
+                        phase = PayloadBuildPhase.Failed,
+                        error = (listOf(vrDecision.title) + vrDecision.detail + vrDecision.remedy)
+                            .joinToString("\n"),
+                        log = lines.takeLast(MAX_LOG_LINES),
+                        blockedKind = BuildBlockKind.VIVO_VR_KO_MISSING,
+                    )
+                    return@launch
+                }
+                if (vrDecision is VrKoGateDecision.Pass) {
+                    publish(app.getString(R.string.builder_vr_ko_ok))
+                }
+
+                // ── 提示（**不是**闸门）：这台机器像是蓝厂的，却选了通用方案 ──
+                //
+                // 方向与上面的闸门相反：这里只有**正面证据**才算数。
+                // 读不到 /proc/modules 不能当成"有 vr.ko" —— SELinux 下非蓝厂机器
+                // 一样读不到，那样每台机器都会看到这条提示，提示就成了噪音。
+                val vrHintIdentity = withContext(Dispatchers.Default) {
+                    listOf(Build.MANUFACTURER, Build.BRAND, Build.MODEL, Build.DEVICE, Build.PRODUCT)
+                        .joinToString(" ")
+                        .lowercase()
+                }
+                val modulesText = withContext(Dispatchers.IO) {
+                    runCatching { File("/proc/modules").readText() }.getOrNull()
+                }
+                if (VrKoBypass.shouldSuggestVivoScheme(modulesText, vrHintIdentity, scheme.baselineScheme)) {
+                    publish(app.getString(R.string.builder_vr_ko_hint))
+                }
+
                 mutableState.value = mutableState.value.copy(phase = PayloadBuildPhase.Packing)
 
                 // 峰值内存就出现在下面这一行：解析 + 打补丁都在里面完成。
@@ -563,6 +781,10 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
 
     companion object {
         private const val MAX_LOG_LINES = 400
+
+        /** 「解析完整包链接」的缓存子目录与产物前缀。 */
+        private const val OTA_CACHE_DIR = "ota"
+        private const val OTA_FILE_PREFIX = "ksuroot_ota_"
 
         fun sha256Hex(bytes: ByteArray): String {
             val digest = MessageDigest.getInstance("SHA-256").digest(bytes)

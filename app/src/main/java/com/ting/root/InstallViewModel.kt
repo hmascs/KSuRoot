@@ -186,7 +186,11 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 val similar = snapshot?.let { current ->
                     runCatching { repository.bundledTarget(current, allowSimilar = true) }.getOrNull()
                 }
-                if (similar != null && snapshot != null) {
+                // 顺序有讲究：`similar` 是从 `snapshot?.let { }` 推出来的，
+                // 所以 `similar != null` 已经蕴含 `snapshot != null`。
+                // 反过来写编译器会报 “Condition is always 'true'”，而且
+                // 那个顺序读起来像在检查两个独立条件 —— 与实际语义不符。
+                if (snapshot != null && similar != null) {
                     mutableState.value = InstallUiState(
                         phase = InstallPhase.Ready,
                         message = app.getString(R.string.status_not_installed),

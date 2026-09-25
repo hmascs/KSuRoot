@@ -549,6 +549,9 @@ internal object BundledPayloadImported {
             name = "iQOO Z9 5G", keywords = listOf("iqoo z9 5g"),
             kernel = null, build = "",
             sha256 = "3cc696d82fb65a571c61b41fcf79a795529e7059c555618b7a530195c2aa75f1", size = 136584L, shortName = "",
+            // 已实测：这份载荷**不带** vr.ko 抹标记（见 BundledPayloadVrKoAuditTest）。
+            // 它没有源码，改不了；只能如实标出来，别让它看起来能用。
+            vivoVrBypass = false,
             source = "ankitrawatgit/iQOO-Z9_5G-vivo-T3_5G-Root-GhostLock :: payload/build/cve-2026-43499-app.so",
         ),
         imported(
@@ -619,6 +622,7 @@ internal object BundledPayloadImported {
         size: Long,
         shortName: String,
         source: String,
+        vivoVrBypass: Boolean? = null,
     ) = BundledPayloadCatalog.BundledPayload(
         library = library,
         vendor = vendor,
@@ -629,6 +633,7 @@ internal object BundledPayloadImported {
         size = size,
         shortName = shortName,
         sourcePath = source,
+        vivoVrBypass = vivoVrBypass,
         command = "LD_PRELOAD=<payload> /system/bin/id",
         origin = BundledPayloadCatalog.Origin.VendorBuild,
         // 不再给每条挂「内核未知」备注 —— 83 份里 77 份读不出内核版本，
