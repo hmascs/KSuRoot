@@ -25,23 +25,63 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # 不用 android-actions/setup-android@v3。
+      # 它是 Node 20 action，runner 把它强制跑在 Node 24 上，会在
+      # `sdkmanager --licenses` 的交互式提问处挂住然后自己崩掉：
+      #     6 of 7 SDK package licenses not accepted.
+      #     Review licenses that have not been accepted (y/N)?     ← 没人喂输入
+      #     ... at ExecState.CheckComplete (.../setup-android/v3/dist/index.js:1806)
+      # 实测 2026-09-25 的 3 次 run 全部死在这一步（8c1949f / afc87af / 98829c5）。
+      #
+      # ubuntu-latest 本身就预装 Android SDK（ANDROID_HOME=/usr/local/lib/android/sdk），
+      # 直接用它，把 cmdline-tools 挂上 PATH 即可 —— 少一个会烂的第三方 action。
       - name: Set up Android SDK tools
-        uses: android-actions/setup-android@v3
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          SDKM=$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | sort -V | tail -1)
+          if [ -z "$SDKM" ]; then
+            echo "::error::runner 上找不到 sdkmanager（$ANDROID_HOME/cmdline-tools/*/bin）"
+            ls -la "$ANDROID_HOME" || true
+            exit 1
+          fi
+          echo "sdkmanager: $SDKM"
+          "$SDKM" --version || true
+          # 当前步骤之后的所有步骤都能直接叫 sdkmanager
+          echo "$(dirname "$SDKM")" >> "$GITHUB_PATH"
 
-      # 版本号取自本项目实际配置：
+      # 版本号取自本项目实际配置（已与本地 SDK 逐项核对）：
       #   compileSdk 37 + compileSdkMinor 2  ->  platforms;android-37.2
       #   ndkVersion "30.0.16248370"
       #   externalNativeBuild.cmake 3.22.1
       - name: Install SDK packages
         run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager --install \
-            "platform-tools" \
-            "platforms;android-37.2" \
-            "build-tools;37.0.0" \
-            "build-tools;36.0.0" \
-            "ndk;30.0.16248370" \
+          # 关键：--licenses 会**交互式提问** (y/N)。不喂输入就会挂到超时，
+          # 而且失败信息完全不像"缺输入"。所有 sdkmanager 调用一律套 `yes |`。
+          yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses > /dev/null 2>&1 || true
+
+          PKGS=(
+            "platform-tools"
+            "platforms;android-37.2"
+            "build-tools;37.0.0"
+            "build-tools;36.0.0"
+            "ndk;30.0.16248370"
             "cmake;3.22.1"
+          )
+          if ! yes | sdkmanager --sdk_root="$ANDROID_HOME" --install "${PKGS[@]}"; then
+            # 37.2 这类 minor SDK 偶尔只在 canary 渠道露出，兜底再试一次
+            echo "::warning::默认渠道装不上，改用 canary 渠道重试"
+            yes | sdkmanager --sdk_root="$ANDROID_HOME" --channel=3 --install "${PKGS[@]}"
+          fi
+
+          # 自证：目录真的在位。避免"装了个寂寞但后面报一个看不懂的错"。
+          for p in platforms/android-37.2 build-tools/37.0.0 ndk/30.0.16248370 cmake/3.22.1; do
+            if [ ! -d "$ANDROID_HOME/$p" ]; then
+              echo "::error::装完仍缺 $ANDROID_HOME/$p"
+              exit 1
+            fi
+            echo "  OK  $p"
+          done
 
       # 仓库里的 wrapper 指向腾讯镜像（为国内本地构建优化），
       # runner 在境外，改回官方源避免绕路超时。
