@@ -5,6 +5,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
+import java.nio.file.Files
 
 /**
  * 移交功能的测试。
@@ -16,6 +18,24 @@ import org.junit.Test
 class RootHandoffTest {
 
     // ---------------------------------------------------------------- 管理器定义
+
+    /**
+     * 造一个**不依赖运行环境文件系统**的 RootShell。
+     *
+     * 单测跑在 JVM 上：本地是真机 Android，CI 是 Ubuntu runner。
+     * 而 `su` 的默认候选全是 Android 路径（`/product/bin/su` 等），
+     * 在 runner 上**必然全部"不存在"** → `runAsRoot` 一路 continue 到 127 分支，
+     * 返回"找不到可用的 su"。所以凡是**假定 su 找得到**的用例，
+     * 都必须用这个工厂，而不是裸 `RootShell(exec = ...)`。
+     *
+     * 这条不是"为了让测试变绿" —— 那些用例要测的是**交接判定的分流逻辑**
+     * （输出/退出码 → Success / ManagerMissing / Failed），
+     * 跟"这台机器的 su 装在哪"毫无关系。把文件系统依赖摘掉，测的才是原本要测的东西。
+     */
+    private fun fakeShell(
+        exec: (List<String>, Long) -> RootShell.ShellOutcome,
+        su: String = "/product/bin/su",
+    ) = RootShell(exec = exec, suCandidates = listOf(su), suExists = { true })
 
     @Test
     fun `两个管理器的包名正确`() {
@@ -154,11 +174,9 @@ class RootHandoffTest {
     @Test
     fun `有 root 且找到 ksud 时判成功`() {
         val runner = RootHandoffRunner(
-            RootShell(
-                exec = { _, _ ->
-                    RootShell.ShellOutcome(0, "KSUD=/data/app/me.weishu.kernelsu-1/lib/arm64/libksud.so\nlate-load ok")
-                },
-            ),
+            fakeShell { _, _ ->
+                RootShell.ShellOutcome(0, "KSUD=/data/app/me.weishu.kernelsu-1/lib/arm64/libksud.so\nlate-load ok")
+            },
         )
         val r = runner.handoff(RootManager.KERNELSU, hasRoot = true)
         assertTrue("实际 $r", r is HandoffResult.Success)
@@ -170,7 +188,7 @@ class RootHandoffTest {
     @Test
     fun `发射 NO_KSUD 时判管理器没装而不是失败`() {
         val runner = RootHandoffRunner(
-            RootShell(exec = { _, _ -> RootShell.ShellOutcome(3, "NO_KSUD") }),
+            fakeShell { _, _ -> RootShell.ShellOutcome(3, "NO_KSUD") },
         )
         val r = runner.handoff(RootManager.SUKISU_ULTRA, hasRoot = true)
         assertTrue("实际 $r", r is HandoffResult.ManagerMissing)
@@ -247,7 +265,7 @@ class RootHandoffTest {
     fun `真机实测的成功与失败在 Runner 上分流正确`() {
         // 用真机量到的两组 (输出, 退出码) 直接喂给 Runner
         val okRunner = RootHandoffRunner(
-            RootShell(exec = { _, _ -> RootShell.ShellOutcome(0, "KSUD=/data/app/x/libksud.so\n") }),
+            fakeShell { _, _ -> RootShell.ShellOutcome(0, "KSUD=/data/app/x/libksud.so\n") },
         )
         assertTrue(
             "正常包名应判成功，实际 ${okRunner.handoff(RootManager.SUKISU_ULTRA, hasRoot = true)}",
@@ -273,7 +291,7 @@ class RootHandoffTest {
     fun `本机只装 SukiSU 时 KernelSU 分支应判为管理器没装`() {
         // 真机实测：find /data/app -name libksud.so | grep me.weishu.kernelsu → 空
         val runner = RootHandoffRunner(
-            RootShell(exec = { _, _ -> RootShell.ShellOutcome(3, "NO_KSUD") }),
+            fakeShell { _, _ -> RootShell.ShellOutcome(3, "NO_KSUD") },
         )
         val r = runner.handoff(RootManager.KERNELSU, hasRoot = true)
         assertTrue("应判 ManagerMissing，实际 $r", r is HandoffResult.ManagerMissing)
@@ -300,7 +318,22 @@ class RootHandoffTest {
 
     @Test
     fun `绝对路径的 su 用文件可执行位判断是否存在`() {
-        assertTrue(PathLookup.exists("/system/bin/sh"))
+        // [2026-10 修] 原来第一行断言的是 PathLookup.exists("/system/bin/sh")。
+        // 单测在 CI 的 **Ubuntu runner** 上跑，那里没有 /system/bin ——
+        // 这条用例在 CI 上**必然失败**，只是 CI 从来没执行过任何 test 任务
+        // （assembleRelease 不跑测试），所以一直没人发现。
+        //
+        // 改成"自己造一个真实文件"：要验的是**可执行位**这个判据本身，
+        // 而不是"某台机器上恰好有个 /system/bin/sh"。
+        val exe = File.createTempFile("ksu-su-probe", ".sh")
+        try {
+            exe.setExecutable(true, true)
+            assertTrue("存在的可执行文件应判 true：${exe.absolutePath}", PathLookup.exists(exe.absolutePath))
+            exe.setExecutable(false, true)
+            assertFalse("没有可执行位就不该判 true：${exe.absolutePath}", PathLookup.exists(exe.absolutePath))
+        } finally {
+            exe.delete()
+        }
         assertFalse(PathLookup.exists("/definitely/not/here/su"))
     }
 
@@ -311,9 +344,20 @@ class RootHandoffTest {
         PathLookup.searchPath = "/nonexistent-a:/nonexistent-b"
         assertFalse("PATH 里没有就不该说存在", PathLookup.exists("su"))
 
-        PathLookup.searchPath = "/nonexistent-a:/system/bin"
-        assertTrue("PATH 里有就该说存在", PathLookup.exists("sh"))
-        PathLookup.searchPath = null
+        // 同理：不能在 PATH 里写死 /system/bin —— runner 上没有它。
+        // 造一个真目录、放一个真可执行文件进去。
+        val dir = Files.createTempDirectory("ksu-path-probe").toFile()
+        val sh = File(dir, "sh")
+        try {
+            sh.writeText("#!/bin/sh\n")
+            sh.setExecutable(true, true)
+            PathLookup.searchPath = "/nonexistent-a:${dir.absolutePath}"
+            assertTrue("PATH 里有就该说存在", PathLookup.exists("sh"))
+        } finally {
+            PathLookup.searchPath = null
+            sh.delete()
+            dir.delete()
+        }
     }
 
     @Test

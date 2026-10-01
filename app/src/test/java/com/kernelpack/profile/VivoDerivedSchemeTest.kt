@@ -66,12 +66,39 @@ class VivoDerivedSchemeTest {
         }
     }
 
+    /**
+     * **已在真机上跑过**的那几档 —— 它们不该标 beta。
+     *
+     * [2026-10 口径变更] 这条用例原来断言"`entries` 里的每一条都不该标 beta"，
+     * 前提是「进了手写列表 == 已实测」。但 6.1 / 6.12 两份**自编族基线**破了这个前提：
+     * 它们**必须**登记进 `entries` 才能被三级路由取到，却**没有任何真机验证** ——
+     * 符号值取自构建用的 target.h，`vr detag` 只证明代码编进去了。
+     *
+     * 真正该拦的是"未实测冒充已验证"，与它在哪个列表里无关。
+     * 所以判据改成**显式名单**：新档位必须自己证明跑过，才能进这里。
+     */
+    private val measuredOnDevice = listOf(
+        "PD2520-BP2A.250605.031.A3",
+        "IONSTACK-P10-CP2A.260605.012",
+    )
+
     @Test
-    fun `已实测的手写档不得被标 beta`() {
+    fun `已实测的档位不得被标 beta`() {
+        for (id in measuredOnDevice) {
+            val e = requireNotNull(BaselineRegistry.byId(id)) { "$id 不在登记表里" }
+            assertFalse("$id 是已实测档，不该标 beta", e.beta)
+        }
+    }
+
+    @Test
+    fun `未经实测的档位必须标 beta 且说清原因`() {
+        // 反向：不在名单里的档位就该老实标 beta，且 notes 要能看出为什么没测过。
         for (e in BaselineRegistry.entries) {
-            assertFalse(
-                "${e.profile.id} 是手写实测档，不该标 beta",
-                e.beta,
+            if (e.profile.id in measuredOnDevice) continue
+            assertTrue("${e.profile.id} 未列入实测名单，就必须标 beta", e.beta)
+            assertTrue(
+                "${e.profile.id} 标了 beta，但 notes 里没说清它未经实测",
+                e.notes.any { it.contains("未") || it.contains("beta") },
             )
         }
     }

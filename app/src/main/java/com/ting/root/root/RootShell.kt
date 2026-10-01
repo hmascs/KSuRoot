@@ -22,6 +22,19 @@ class RootShell(
     private val exec: (List<String>, Long) -> ShellOutcome = ::execWithTimeout,
     /** `su` 的候选路径，按顺序探测。有的设备只有 `/system/bin/su`，有的只有 `su`。 */
     private val suCandidates: List<String> = DEFAULT_SU_CANDIDATES,
+    /**
+     * `su` 候选路径的**存在性判定**。
+     *
+     * [可测性] 这个参数是 2026-10 补的，因为缺它导致**单测必然依赖运行环境的文件系统**：
+     * 用例构造 `RootShell(exec = { ... })` 时用的是默认候选（全是 Android 路径），
+     * 而在 CI 的 Ubuntu runner 上 `/product/bin/su`、`/system/bin/su` 都不存在，
+     * 于是 `runAsRoot` 一路 `continue` 到 127 分支，返回
+     * "找不到可用的 su —— 逐个试过：…(不存在)" —— 而用例期望的是成功。
+     *
+     * 这正是类文档里那句"[可测性] 路径与执行器都可以注入"**没做到的最后一环**：
+     * 候选可注入，但"这个候选在不在"仍然去问真实文件系统。
+     */
+    private val suExists: (String) -> Boolean = { Companion.suExists(it) },
 ) {
 
     /** 执行结果。 */
@@ -183,8 +196,6 @@ class RootShell(
             }
         }
     }
-
-    private fun suExists(su: String): Boolean = Companion.suExists(su)
 }
 
 /**
