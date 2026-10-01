@@ -149,11 +149,11 @@
 > 折成 `AND` 逻辑立即数，两者都不是 `movz/movk`。照 `movz` 扫会**全量漏判**。
 > 为此在 `AArch64` 里补了 `decodeAddImmediate` / `decodeLogicalImmediate` 两个解码器。
 
-**实测区分度**（`jniLibs/arm64-v8a` 全量 126 份 `.so`）：
+**实测区分度**（`jniLibs/arm64-v8a` 全量 127 份 `.so`）：
 
 | | 份数 | 日志串 | 机器码特征 |
 |---|---|---|---|
-| 带绕过 | 36 | 36 / 36 | 36 / 36 |
+| 带绕过 | 37 | 37 / 37 | 37 / 37 |
 | 不带 | 89 | 0 / 89 | **0 / 89** |
 
 两条判据在真实语料上完全一致、零假阳性；另 1 份 ELF 头损坏 → 判 `UNPARSEABLE`
@@ -209,7 +209,7 @@
 ### 内置厂商载荷：39 → **122 条**
 
 新增并入批次 **83 份**（Pixel 全系、三星全系、OPPO / realme / 一加 / 华硕等），
-随包 `.so` 共 **126 个**。读不出内核版本的 77 份一律 `kernelUnknown`，
+随包 `.so` 共 **127 个**。读不出内核版本的 69 份一律 `kernelUnknown`，
 **只允许手动选择、绝不参与自动匹配** —— 载荷靠编译期常量寻址内核符号，拿错一份就是提权失败。
 
 ### 修掉的两处「基线 ABI 冲突」误报（4.0.0 发布前）
@@ -342,17 +342,17 @@
 | 5.10 / 5.15 | 测试（beta） | 需在设置里显式打开「5.x 内核支持」；布局锚点只有上游 `target.h` 一条腿 |
 | 其它 6.x（6.2 / 6.5 / 6.7…） | 拒绝 | 没有专属基线，硬按主线偏移构建会打到错误的结构体字段 |
 
-### 内置厂商载荷（123 条登记 / 127 个 `.so`）
+### 内置厂商载荷（122 条登记 / 127 个 `.so`）
 
 | 来源 | 份数 | 说明 |
 |---|---|---|
-| vivo / iQOO | 37 | 6.6.30 / 6.6.57 / 6.6.89 / 6.6.127 分组互认；另含 X100（6.1.145） |
+| vivo / iQOO | 36 | 6.6.30 / 6.6.57 / 6.6.89 / 6.6.127 分组互认；另含 X100（6.1.145） |
 | 三星 Galaxy | 34 | 按 `support/targets-v3.json` 的权威机型↔内核对照登记 |
 | Google Pixel | 29 | Pixel 6 ~ 11 全系 |
 | 小米 / Redmi / POCO | 13 | 按 SoC 家族分组（SM8550 / SM8650 / SM8750 / 天玑 6895） |
 | OPPO | 5 | — |
 | 其它 | 5 | realme / 一加 / 华硕 / 魅族等 |
-| **合计** | **123** | 对应随包 `.so` **127 个** |
+| **合计** | **122** | 对应随包 `.so` **127 个** |
 
 > 读不出内核版本的 **69 份**一律标 `kernelUnknown`：**只能手动选择，绝不参与自动匹配**。
 > 口径：`jniLibs/arm64-v8a` 下 127 个 `.so`，减去登记表中 `kernelVersion` 非空的那批所覆盖的 58 个。
@@ -469,7 +469,7 @@ Version **4.0.0**. Highlights:
   baseline `.so`, so both sides must line up — otherwise the build is **blocked** instead of silently
   shipping stale constants for the wrong kernel.
 - **`offsets.json` interoperability** with GhostLock: read / write / merge, round-trip safe for unknown keys.
-- **122 bundled vendor payloads** (126 `.so`), fully offline, matched by model + kernel version + commit
+- **122 bundled vendor payloads** (127 `.so`), fully offline, matched by model + kernel version + commit
   with a three-tier fallback that labels the weaker tiers as "may work" so you decide.
 - **304 unit tests**, debug + release both compile.
 

@@ -87,7 +87,13 @@ class BundledPayloadVrKoAuditTest {
             f.isFile && f.name.startsWith("libksu_vivo_") && f.name.endsWith(".so")
         }?.toList().orEmpty()
         val present = files.count { VrKoPayloadCheck.check(it.readBytes()).status == VrKoPayloadCheck.Status.PRESENT }
-        assertEquals("实测：34 份里 32 份带绕过、2 份不带", files.size - 2, present)
+        // 断言只用相对关系（恰好 2 份不带），所以载荷增减不会让它变红；
+        // 但提示语里的数字**必须是现算的** —— 写死过一次，载荷从 34 涨到 35 之后就一直在说瞎话。
+        assertEquals(
+            "实测：${files.size} 份里 ${files.size - 2} 份带绕过、2 份不带",
+            files.size - 2,
+            present,
+        )
     }
 
     @Test
