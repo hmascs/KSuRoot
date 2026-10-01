@@ -33,16 +33,21 @@ import com.kernelpack.patch.AArch64
  * 两者都**不是** `movz/movk`。照着 movz 扫会**全量漏判**（连有绕过的 36 份也一个都扫不出来）。
  * 所以这里扫的是实测出来的真实形态，并为此在 [AArch64] 里补了两个解码器。
  *
- * ### 判据的实测区分度（本仓库 `jniLibs/arm64-v8a` 全量 126 份 `.so`）
+ * ### 判据的实测区分度（本仓库 `jniLibs/arm64-v8a` 全量 127 份 `.so`）
  *
  * | | 份数 | 日志串 | `add #0x2c` 且 `AND ~0x400` |
  * |---|---|---|---|
- * | 有绕过 | 36 | 36 / 36 | 36 / 36 |
+ * | 有绕过 | 37 | 37 / 37 | 37 / 37 |
  * | 没有 | 89 | 0 / 89 | **0 / 89** |
  *
  * 也就是说两条判据在真实语料上**完全一致**、且零假阳性。
  * 另 1 份（`libksu_other_androidcve202643499_any_ccc0.so`，8492 B）ELF 头损坏，
  * 解析不了 → 判 [Status.UNPARSEABLE]（见下）。
+ *
+ * > **判定不依赖 tag A 偏移。** [Evidence.codeSignature] 用的是「tag B (`add #0x2c`)
+ * > 且 清 `0x400`」—— 这两个值三族实测一致，所以闸门在 6.1 / 6.6 / 6.12 上跑的是同一套逻辑。
+ * > tag A 的偏移是**分族的**（6.1 = `#0x4`，6.6 / 6.12 = `#0x6`），
+ * > 但它只作为弱旁证出现，见 [Evidence.tagAAddSites]。
  *
  * ### 为什么还要三态
  *
@@ -84,11 +89,27 @@ object VrKoPayloadCheck {
     data class Evidence(
         /** `.rodata` 里有没有 [DETAG_LOG_MARKER]。 */
         val detagLogMarker: Boolean,
-        /** `add xN, xM, #0x6`（tag A 地址）出现次数 —— **仅作旁证**，单靠它不足以判定。 */
+        /**
+         * `add xN, xM, #0x6` 出现次数 —— **仅作旁证，不参与判定**（见 [codeSignature]）。
+         *
+         * ### 实测：这个数很弱，而且**不是"分族再数一个"就能修的**
+         *
+         * 全量 127 份实测：有绕过的 37 份里 36 份命中；
+         * **没有绕过的 89 份里也有 3 份命中**。所以它是弱旁证，不是判据。
+         *
+         * 曾经想过"6.1 的 tag A 是 `0x04`，那就再数一个 `add #0x4`" ——
+         * **实测证明这行不通**：`add #0x4` 是极常见的指令，
+         * 89 份**没有**绕过的载荷里有 **86 份**都命中。把那个数放出来只会误导。
+         *
+         * 更根本的原因是**扫错了指令形态**：真机上 tag A 的读写是
+         * `ldrb w8, [xN, #off]` / `strb w8, [xN, #off]`（见 [VrKoBypass.VR_TAG_A_OFF]
+         * 的实测表），根本不是 `add`。这个字段留着是因为它便宜且无害，
+         * 判定靠的是 [tagBAddSites] + [syscallTpFlagClearSites]。
+         */
         val tagAAddSites: Int,
-        /** `add xN, xM, #0x2c`（tag B 地址）出现次数。 */
+        /** `add xN, xM, #0x2c`（tag B 地址）出现次数。**判定用**。 */
         val tagBAddSites: Int,
-        /** `AND` 64 位立即数 == `~0x400`（清 `VR_SYSCALL_TP_FLAG`）出现次数。 */
+        /** `AND` 64 位立即数 == `~0x400`（清 `VR_SYSCALL_TP_FLAG`）出现次数。**判定用**。 */
         val syscallTpFlagClearSites: Int,
         /** ELF 是否解析成功。 */
         val elfParsed: Boolean,
@@ -155,6 +176,11 @@ object VrKoPayloadCheck {
      * 只做**单条指令**匹配，不做数据流跟踪：这里要的是"这段代码在不在"，
      * 不是"这个常量最终进了哪个寄存器"。偏移量是编译期常量、clang 直接折进
      * `add`/`AND` 的立即数字段，所以单条匹配就够 —— 而且是**实测过的**够。
+     *
+     * > **tag A 这一格是弱旁证，不要拿它当判据。** 见 [Evidence.tagAAddSites]：
+     * > 全量实测下 89 份没绕过的载荷里有 3 份也命中 `#0x6`；
+     * > 而换成各族的真实 tag A 偏移（6.1 = `#0x4`）更糟 —— 86/89 命中，等于没有区分度。
+     * > 判定只用后两格。保留第一格纯粹因为它便宜。
      */
     private fun scan(bytes: ByteArray, from: Int, to: Int): IntArray {
         val out = IntArray(3)

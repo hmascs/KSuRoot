@@ -3,6 +3,8 @@ package com.kernelpack.vivo
 import com.kernelpack.profile.BaselineScheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -39,17 +41,63 @@ class VrKoBypassTest {
     }
 
     @Test
-    fun `常量值与上游源码逐一一致`() {
-        assertEquals(0x06L, VrKoBypass.VR_TAG_A_OFF)
-        assertEquals(0x2cL, VrKoBypass.VR_TAG_B_OFF)
+    fun `常量值与三族真机固件反汇编逐一一致`() {
+        // 这三个数不是从上游源码抄的，是从**三台真机固件里的 vr.ko** 反汇编读出来的
+        // （样本与逐条对照见 03-内核镜像/vrko-三族实测对比.md）。
+        assertEquals("6.6 / 6.12 的 tag A", 0x06L, VrKoBypass.VR_TAG_A_OFF)
+        assertEquals("6.1 的 tag A —— 与 6.6/6.12 不同", 0x04L, VrKoBypass.VR_TAG_A_OFF_6_1)
+        assertEquals("tag B 三族一致", 0x2cL, VrKoBypass.VR_TAG_B_OFF)
         assertEquals(0x400L, VrKoBypass.VR_SYSCALL_TP_FLAG)
+    }
+
+    @Test
+    fun `按内核族取 tag A —— 6_1 必须与 6_6 6_12 不同`() {
+        // 这条是**回归闸门**：6.1 与 6.6 只差半代，tag A 就挪了 2 个字节。
+        // 谁要是把 6.1 也写成 0x06（或者把三个族合成一个常量），这里必须变红。
+        assertEquals(0x04L, VrKoBypass.tagAOffForSeries("6.1"))
+        assertEquals(0x06L, VrKoBypass.tagAOffForSeries("6.6"))
+        assertEquals(0x06L, VrKoBypass.tagAOffForSeries("6.12"))
+        assertNotEquals(
+            "6.1 与 6.6 的 tag A 实测不同，不能取同一个值",
+            VrKoBypass.tagAOffForSeries("6.1"),
+            VrKoBypass.tagAOffForSeries("6.6"),
+        )
+    }
+
+    @Test
+    fun `认不出的内核族返回 null 而不是猜一个默认值`() {
+        // 回落成默认值是这类代码最容易犯的错：拿 6.6 的值去打未知族，
+        // 表现是"一个字节都没抹掉"，而自检还会报成功。
+        assertNull(VrKoBypass.tagAOffForSeries(null))
+        assertNull(VrKoBypass.tagAOffForSeries(""))
+        assertNull(VrKoBypass.tagAOffForSeries("5.10"))
+        assertNull(VrKoBypass.tagAOffForSeries("6.18"))
+    }
+
+    @Test
+    fun `从完整内核 release 串也能取到 tag A`() {
+        assertEquals(0x04L, VrKoBypass.tagAOffForRelease("6.1.145-android14-11-maybe-dirty"))
+        assertEquals(
+            0x06L,
+            VrKoBypass.tagAOffForRelease("6.6.89-android15-8-g1f71897ac249-abogki467805059-4k"),
+        )
+        assertEquals(0x06L, VrKoBypass.tagAOffForRelease("6.12.58-android16-6-g0a092cc0037a"))
+        assertNull("6.18 不在适配范围内，不许猜", VrKoBypass.tagAOffForRelease("6.18.0-android17"))
+    }
+
+    @Test
+    fun `已知 tag A 偏移全集覆盖全部三族`() {
+        // 扫描旁证时要遍历这个集合；漏一族就会在证据里显示"tag A = 0"。
+        assertEquals(listOf(0x04L, 0x06L), VrKoBypass.VR_TAG_A_OFFS)
     }
 
     @Test
     fun `tag A 与 tag B 必须同时清零 —— 它们都要在掩码里被覆盖`() {
         // vr 把"一个清一个没清"本身当作 tamper 证据，单独清一个会被杀。
         // 这里把两个偏移钉死：任何改动都必须重新核对 C 侧那两笔写。
-        assertTrue("tag A 应落在 thread_info.flags 的头 8 字节内", VrKoBypass.VR_TAG_A_OFF in 0L..7L)
+        for (off in VrKoBypass.VR_TAG_A_OFFS) {
+            assertTrue("tag A($off) 应落在 thread_info.flags 的头 8 字节内", off in 0L..7L)
+        }
         assertTrue("tag B 应落在 +0x2c", VrKoBypass.VR_TAG_B_OFF == 0x2cL)
     }
 

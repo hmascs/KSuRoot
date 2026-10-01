@@ -442,9 +442,14 @@ object BaselineRegistry {
             notes = listOf(
                 "6.1 族通用档：结构体取 F6_1 族，符号值逐条登记，构建时按 boot.img 改写。",
                 "不带 neutralize_vr()（Option B）：本族没有可核实的 tracepoint 偏移。",
-                "⚠️ vr.ko 的两个标记字节偏移（0x06 / 0x2c）编译期烤死、patch 改不了；" +
-                    "它们取自 PD2520（6.6）那份 target.h，**跨内核版本从未实测验证**" +
-                    "（详见 VrKoBypass.VR_TAG_A_OFF 的说明）。蓝厂机型上这条前提必须先在真机确认。",
+                "vr.ko 标记偏移已**逐台实测**：6.1 = tag A `0x04` / tag B `0x2c`" +
+                    "（X100 Pro PD2324 · 6.1.145 固件里的 vr.ko），三族对照见 " +
+                    "`03-内核镜像/vrko-三族实测对比.md`。编译期烤死、patch 改不了，" +
+                    "所以 6.1 必须用 0x04 —— 用 6.6 的 0x06 会一个字节都抹不掉。" +
+                    "（载荷侧对应 targets/baseline-6.1-tokay/target.h 的 VR_TAG_A_OFF。）",
+                "⚠️ 仍标 beta 的理由收窄了，但**没有消失**：偏移值是实测的，" +
+                    "而「抹标记」这一步没有在任何真机上跑过。`vr detag` 只证明代码编进去了，" +
+                    "不证明它抹对了、更不证明抹完就不被杀 —— 未验证的是**载荷行为**，不是偏移值。",
             ),
             beta = true,
         ),
@@ -461,7 +466,10 @@ object BaselineRegistry {
             notes = listOf(
                 "6.12 族通用档：结构体取 F6_12 族（TASK_CRED_OFF=0x900 等，与 6.1 族不同）。",
                 "符号来源含 CROSS_REFERENCE（荣耀 6.12.38 实测），构建时按 boot.img 的值逐项改写。",
-                "⚠️ 同上：vr.ko 标记偏移 0x06 / 0x2c 取自 6.6 的 target.h，跨版本未经实测。",
+                "vr.ko 标记偏移已**逐台实测**：6.12 = tag A `0x06` / tag B `0x2c`" +
+                    "（iQOO 15 PD2505 · 6.12.58 固件里的 vr.ko），与 6.6 相同、与 6.1 不同。",
+                "⚠️ 仍标 beta：偏移值实测了，「抹标记」这一步**未在真机上跑过**。" +
+                    "另外符号表里有一部分是 CROSS_REFERENCE（别的机型），构建时才被逐项改写。",
             ),
             beta = true,
         ),

@@ -103,6 +103,31 @@ class VrKoPayloadCheckTest {
         assertFalse(e.codeSignature)
     }
 
+    @Test
+    fun `判定不依赖 tag A —— 三族 tag A 偏移不同，但闸门在 6_1 上照样成立`() {
+        // 这条守的是一个**跨族可用性**结论：
+        // 三族实测的 tag A 偏移不同（6.1 = 0x04，6.6 / 6.12 = 0x06），
+        // 而判定用的是「tag B + 清 0x400」—— 这两个值三族一致。
+        // 所以同一套判据能在 6.1 / 6.6 / 6.12 三族上通用，不必分族。
+        //
+        // 反过来说：如果哪天有人把 tag A 挪进判定条件，6.1 的载荷会立刻被判 ABSENT
+        // （它的 add #0x6 计数是 0）。这条用例就是拦那个改动的。
+        val sixOne = VrKoPayloadCheck.check(payload("libbaseline_6_1.so"))
+        val sixTwelve = VrKoPayloadCheck.check(payload("libbaseline_6_12.so"))
+        val sixSix = VrKoPayloadCheck.check(payload("libbs.so"))
+
+        for ((name, r) in listOf("6.1" to sixOne, "6.12" to sixTwelve, "6.6" to sixSix)) {
+            assertEquals("$name 基线应判 PRESENT", VrKoPayloadCheck.Status.PRESENT, r.status)
+            assertTrue("$name：清 0x400 的指纹必须在", r.evidence.syscallTpFlagClearSites > 0)
+            assertTrue("$name：tag B 的 add 必须在", r.evidence.tagBAddSites > 0)
+        }
+        assertEquals(
+            "6.1 的 tag A 是 #0x4，所以按 #0x6 扫必然是 0 —— 判定不能建在这个数上",
+            0,
+            sixOne.evidence.tagAAddSites,
+        )
+    }
+
     // ── 真实文件定位 ────────────────────────────────────────────────
     //
     // 单测的工作目录是 Gradle 模块目录（app/）。找不到就**直接失败**，
