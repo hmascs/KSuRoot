@@ -183,151 +183,6 @@ object BaselineRegistry {
     val TEST_SERIES: List<String> = listOf("5.10", "5.15")
 
     /**
-     * 现有基线。**只有两条，都是 6.6** —— 这是当前的真实状态，不要谎报覆盖面。
-     *
-     * 新增一条基线的正确方式（顺序很重要）：
-     *   1. 拿到一份**为该内核编译的载荷 .so**（或上游仓库的 target.h）
-     *   2. 用宿主侧工具从 .so 里提取烘焙常量 / 从 target.h 抄下来，
-     *      并给**每一条**偏移写 [com.kernelpack.offset.OffsetNote]（来源 + 量自哪个内核）
-     *   3. 若能把目标内核的 BTF 或反汇编拿到，填 [BaselineEntry.feasibility] 的落点实测
-     *   4. 登记到本表，写清 [BaselineEntry.source]
-     * **不要**照着另一档的数值改几个数字充数，也不要按内核版本外推布局。
-     */
-    val entries: List<BaselineEntry> = listOf(
-        BaselineEntry(
-            profile = BaselineProfiles.PD2520,
-            scheme = BaselineScheme.VIVO,
-            device = "PD2520",
-            firmware = "BP2A.250605.031.A3",
-            kernelSeries = "6.6",
-            gkiBranch = "android15-8",
-            source = "boxiaolanya2008/CVE-2026-43499-Neo11Plus · PD2520-BP2A.250605.031.A3",
-            offsets = pd2520Offsets(),
-            feasibility = null,
-            notes = listOf(
-                "vivo / iQOO 专用分支：比通用方案多一条 vr.ko 反 root 绕过。",
-                "厂商私有字段（vr.ko / 反 root）不可跨厂商照搬。",
-            ),
-        ),
-        BaselineEntry(
-            profile = BaselineProfiles.IONSTACK_P10,
-            scheme = BaselineScheme.UNIVERSAL,
-            device = "P10",
-            firmware = "CP2A.260605.012",
-            kernelSeries = "6.6",
-            gkiBranch = "android15-8",
-            source = "NebuSec/CyberMeowfia · IonStack 通用分支（frankel-CP2A.260605.012）",
-            offsets = ionstackOffsets(),
-            feasibility = null,
-            notes = listOf(
-                "Pixel / GKI 通用分支，无厂商绕过。",
-                "内置载荷的编译期常量取自上游 frankel-CP2A.260605.012/target.h。",
-            ),
-        ),
-        // ——— 6.1 / 6.12 族基线 —————————————————————————————
-        //
-        // 【为什么必须登记成条目】这两份 `libbaseline_6_1.so` / `libbaseline_6_12.so`
-        // 一直**只在 [BaselineLibraries] 里按族选库**，却从没进过本表 ——
-        // 于是三级路由的第 3 级（大系列）永远查不到它们，用户看到的是
-        // 「还没有为「蓝厂方案 × 内核 6.1」登记偏移产物」，而库其实就在包里。
-        //
-        // 【为什么 `kernelSeries` 填两段大系列】第 1 级比完整串、第 2 级比小版本，
-        // 派生的上游档存的是三段小版本；只有**大系列**这一层能兜住"该系列下任意小版本"。
-        // 这正是第 3 级存在的意义。
-        //
-        // 【为什么两个方案各一条】6.1 / 6.12 两族**共用同一份库**
-        // （[BaselineLibraries.forFamily] 不区分方案），但路由是按方案走的：
-        // 蓝厂方案要求载荷带 vr.ko 抹标记，而这两份库重编后 `vr detag` = 2，带得住。
-        //
-        // ⚠️ `beta = true`：产物合法、符号值逐条取自构建用的 target.h，
-        // 但**没有任何真机验证** —— `vr detag` 只证明代码编进去了。
-        BaselineEntry(
-            profile = BASELINE_6_1,
-            scheme = BaselineScheme.UNIVERSAL,
-            device = "tokay",
-            firmware = "CP2A.260605.012",
-            kernelSeries = "6.1",
-            gkiBranch = null,
-            source = "自编族基线 · 载荷构建/targets/baseline-6.1-tokay/target.h（配方见 载荷构建/README.md）",
-            offsets = familyOffsets(BASELINE_6_1, "载荷构建/targets/baseline-6.1-tokay"),
-            feasibility = null,
-            notes = listOf(
-                "6.1 族通用档：结构体取 F6_1 族，符号值逐条登记，构建时按 boot.img 改写。",
-                "不带 neutralize_vr()（Option B）：本族没有可核实的 tracepoint 偏移。",
-            ),
-            beta = true,
-        ),
-        BaselineEntry(
-            profile = BASELINE_6_12,
-            scheme = BaselineScheme.UNIVERSAL,
-            device = "honor-ylp-w00",
-            firmware = "6.12.38",
-            kernelSeries = "6.12",
-            gkiBranch = null,
-            source = "自编族基线 · 载荷构建/targets/baseline-6.12-gki/target.h（配方见 载荷构建/README.md）",
-            offsets = familyOffsets(BASELINE_6_12, "载荷构建/targets/baseline-6.12-gki"),
-            feasibility = null,
-            notes = listOf(
-                "6.12 族通用档：结构体取 F6_12 族（TASK_CRED_OFF=0x900 等，与 6.1 族不同）。",
-                "符号来源含 CROSS_REFERENCE（荣耀 6.12.38 实测），构建时按 boot.img 的值逐项改写。",
-            ),
-            beta = true,
-        ),
-    )
-
-    /**
-     * ★ 结构体族 → 基线库文件名。
-     *
-     * ### 为什么必须按族选，而不是每个方案一个固定库
-     *
-     * `PayloadScheme` 原本硬编码一个库（通用→`libionstack.so`、蓝厂→`libbs.so`），
-     * 而那两份**都是 6.6 族**的。拿它去打 6.1 或 6.12 的内核时，
-     * **结构体偏移是错的** —— 而结构体偏移是**编译期烤死的，patch 改不了**。
-     *
-     * 后果比"符号对不上"更隐蔽：符号可以 patch 对，看起来一切正常，
-     * 实际写的却是错位置的字段。
-     *
-     * 所以基线库按**目标内核的结构体族**选：
-     * - 6.1  → `libbaseline_6_1.so`（自编，tokay target.h）
-     * - 6.6  → 沿用各方案原有的库（`libionstack.so` / `libbs.so`）
-     * - 6.12 → `libbaseline_6_12.so`（自编，GhostLock 6_12 + 荣耀 BTF）
-     */
-    object BaselineLibraries {
-        const val SIX_ONE = "libbaseline_6_1.so"
-        const val SIX_TWELVE = "libbaseline_6_12.so"
-
-        /** 6.1 / 6.12 用自编基线；6.6 沿用方案自带的那份（`libionstack.so` / `libbs.so`）。 */
-        fun forFamily(family: GhostLockKernelOffsets.StructFamily): String = when (family) {
-            GhostLockKernelOffsets.StructFamily.F6_1 -> SIX_ONE
-            GhostLockKernelOffsets.StructFamily.F6_12 -> SIX_TWELVE
-            GhostLockKernelOffsets.StructFamily.F6_6 -> "" // 交给调用方用方案原有的库
-        }
-
-        /** 从内核串推出结构体族。**认不出返回 null，不猜**。 */
-        fun familyOf(kernelRelease: String?): GhostLockKernelOffsets.StructFamily? {
-            val v = kernelRelease?.substringBefore('-') ?: return null
-            return when {
-                v.startsWith("6.1.") -> GhostLockKernelOffsets.StructFamily.F6_1
-                v.startsWith("6.6.") -> GhostLockKernelOffsets.StructFamily.F6_6
-                v.startsWith("6.12.") -> GhostLockKernelOffsets.StructFamily.F6_12
-                else -> null
-            }
-        }
-
-        /**
-         * 该用哪个库文件。
-         *
-         * @param schemeLibrary 方案原本的库（6.6 族时使用）。
-         * @return 库文件名；族认不出时**回落到方案原有的库**并保持原行为。
-         */
-        fun resolve(schemeLibrary: String, kernelRelease: String?): String {
-            val fam = familyOf(kernelRelease) ?: return schemeLibrary
-            val byFamily = forFamily(fam)
-            return byFamily.ifBlank { schemeLibrary }
-        }
-    }
-
-    /**
      * ★ 6.1 族基线（自行编译）。
      *
      * ### 它解决什么
@@ -482,6 +337,152 @@ object BaselineRegistry {
            "SLIDE_ROOT_TASK_GROUP" to 0x261a580L,
         ),
     )
+
+    /**
+     * 现有基线。**只有两条，都是 6.6** —— 这是当前的真实状态，不要谎报覆盖面。
+     *
+     * 新增一条基线的正确方式（顺序很重要）：
+     *   1. 拿到一份**为该内核编译的载荷 .so**（或上游仓库的 target.h）
+     *   2. 用宿主侧工具从 .so 里提取烘焙常量 / 从 target.h 抄下来，
+     *      并给**每一条**偏移写 [com.kernelpack.offset.OffsetNote]（来源 + 量自哪个内核）
+     *   3. 若能把目标内核的 BTF 或反汇编拿到，填 [BaselineEntry.feasibility] 的落点实测
+     *   4. 登记到本表，写清 [BaselineEntry.source]
+     * **不要**照着另一档的数值改几个数字充数，也不要按内核版本外推布局。
+     */
+    val entries: List<BaselineEntry> = listOf(
+        BaselineEntry(
+            profile = BaselineProfiles.PD2520,
+            scheme = BaselineScheme.VIVO,
+            device = "PD2520",
+            firmware = "BP2A.250605.031.A3",
+            kernelSeries = "6.6",
+            gkiBranch = "android15-8",
+            source = "boxiaolanya2008/CVE-2026-43499-Neo11Plus · PD2520-BP2A.250605.031.A3",
+            offsets = pd2520Offsets(),
+            feasibility = null,
+            notes = listOf(
+                "vivo / iQOO 专用分支：比通用方案多一条 vr.ko 反 root 绕过。",
+                "厂商私有字段（vr.ko / 反 root）不可跨厂商照搬。",
+            ),
+        ),
+        BaselineEntry(
+            profile = BaselineProfiles.IONSTACK_P10,
+            scheme = BaselineScheme.UNIVERSAL,
+            device = "P10",
+            firmware = "CP2A.260605.012",
+            kernelSeries = "6.6",
+            gkiBranch = "android15-8",
+            source = "NebuSec/CyberMeowfia · IonStack 通用分支（frankel-CP2A.260605.012）",
+            offsets = ionstackOffsets(),
+            feasibility = null,
+            notes = listOf(
+                "Pixel / GKI 通用分支，无厂商绕过。",
+                "内置载荷的编译期常量取自上游 frankel-CP2A.260605.012/target.h。",
+            ),
+        ),
+        // ——— 6.1 / 6.12 族基线 —————————————————————————————
+        //
+        // 【为什么必须登记成条目】这两份 `libbaseline_6_1.so` / `libbaseline_6_12.so`
+        // 一直**只在 [BaselineLibraries] 里按族选库**，却从没进过本表 ——
+        // 于是三级路由的第 3 级（大系列）永远查不到它们，用户看到的是
+        // 「还没有为「蓝厂方案 × 内核 6.1」登记偏移产物」，而库其实就在包里。
+        //
+        // 【为什么 `kernelSeries` 填两段大系列】第 1 级比完整串、第 2 级比小版本，
+        // 派生的上游档存的是三段小版本；只有**大系列**这一层能兜住"该系列下任意小版本"。
+        // 这正是第 3 级存在的意义。
+        //
+        // 【为什么两个方案各一条】6.1 / 6.12 两族**共用同一份库**
+        // （[BaselineLibraries.forFamily] 不区分方案），但路由是按方案走的：
+        // 蓝厂方案要求载荷带 vr.ko 抹标记，而这两份库重编后 `vr detag` = 2，带得住。
+        //
+        // ⚠️ `beta = true`：产物合法、符号值逐条取自构建用的 target.h，
+        // 但**没有任何真机验证** —— `vr detag` 只证明代码编进去了。
+        BaselineEntry(
+            profile = BASELINE_6_1,
+            scheme = BaselineScheme.UNIVERSAL,
+            device = "tokay",
+            firmware = "CP2A.260605.012",
+            kernelSeries = "6.1",
+            gkiBranch = null,
+            source = "自编族基线 · 载荷构建/targets/baseline-6.1-tokay/target.h（配方见 载荷构建/README.md）",
+            offsets = familyOffsets(BASELINE_6_1, "载荷构建/targets/baseline-6.1-tokay"),
+            feasibility = null,
+            notes = listOf(
+                "6.1 族通用档：结构体取 F6_1 族，符号值逐条登记，构建时按 boot.img 改写。",
+                "不带 neutralize_vr()（Option B）：本族没有可核实的 tracepoint 偏移。",
+            ),
+            beta = true,
+        ),
+        BaselineEntry(
+            profile = BASELINE_6_12,
+            scheme = BaselineScheme.UNIVERSAL,
+            device = "honor-ylp-w00",
+            firmware = "6.12.38",
+            kernelSeries = "6.12",
+            gkiBranch = null,
+            source = "自编族基线 · 载荷构建/targets/baseline-6.12-gki/target.h（配方见 载荷构建/README.md）",
+            offsets = familyOffsets(BASELINE_6_12, "载荷构建/targets/baseline-6.12-gki"),
+            feasibility = null,
+            notes = listOf(
+                "6.12 族通用档：结构体取 F6_12 族（TASK_CRED_OFF=0x900 等，与 6.1 族不同）。",
+                "符号来源含 CROSS_REFERENCE（荣耀 6.12.38 实测），构建时按 boot.img 的值逐项改写。",
+            ),
+            beta = true,
+        ),
+    )
+
+    /**
+     * ★ 结构体族 → 基线库文件名。
+     *
+     * ### 为什么必须按族选，而不是每个方案一个固定库
+     *
+     * `PayloadScheme` 原本硬编码一个库（通用→`libionstack.so`、蓝厂→`libbs.so`），
+     * 而那两份**都是 6.6 族**的。拿它去打 6.1 或 6.12 的内核时，
+     * **结构体偏移是错的** —— 而结构体偏移是**编译期烤死的，patch 改不了**。
+     *
+     * 后果比"符号对不上"更隐蔽：符号可以 patch 对，看起来一切正常，
+     * 实际写的却是错位置的字段。
+     *
+     * 所以基线库按**目标内核的结构体族**选：
+     * - 6.1  → `libbaseline_6_1.so`（自编，tokay target.h）
+     * - 6.6  → 沿用各方案原有的库（`libionstack.so` / `libbs.so`）
+     * - 6.12 → `libbaseline_6_12.so`（自编，GhostLock 6_12 + 荣耀 BTF）
+     */
+    object BaselineLibraries {
+        const val SIX_ONE = "libbaseline_6_1.so"
+        const val SIX_TWELVE = "libbaseline_6_12.so"
+
+        /** 6.1 / 6.12 用自编基线；6.6 沿用方案自带的那份（`libionstack.so` / `libbs.so`）。 */
+        fun forFamily(family: GhostLockKernelOffsets.StructFamily): String = when (family) {
+            GhostLockKernelOffsets.StructFamily.F6_1 -> SIX_ONE
+            GhostLockKernelOffsets.StructFamily.F6_12 -> SIX_TWELVE
+            GhostLockKernelOffsets.StructFamily.F6_6 -> "" // 交给调用方用方案原有的库
+        }
+
+        /** 从内核串推出结构体族。**认不出返回 null，不猜**。 */
+        fun familyOf(kernelRelease: String?): GhostLockKernelOffsets.StructFamily? {
+            val v = kernelRelease?.substringBefore('-') ?: return null
+            return when {
+                v.startsWith("6.1.") -> GhostLockKernelOffsets.StructFamily.F6_1
+                v.startsWith("6.6.") -> GhostLockKernelOffsets.StructFamily.F6_6
+                v.startsWith("6.12.") -> GhostLockKernelOffsets.StructFamily.F6_12
+                else -> null
+            }
+        }
+
+        /**
+         * 该用哪个库文件。
+         *
+         * @param schemeLibrary 方案原本的库（6.6 族时使用）。
+         * @return 库文件名；族认不出时**回落到方案原有的库**并保持原行为。
+         */
+        fun resolve(schemeLibrary: String, kernelRelease: String?): String {
+            val fam = familyOf(kernelRelease) ?: return schemeLibrary
+            val byFamily = forFamily(fam)
+            return byFamily.ifBlank { schemeLibrary }
+        }
+    }
+
 
     /**
      * ★ 上游（GhostLock）内核档：把 `src/kernels/<release>/offsets.h` 的**真实偏移**
