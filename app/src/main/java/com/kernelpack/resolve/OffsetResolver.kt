@@ -22,10 +22,76 @@ class OffsetResolver(
 
     private val index: Map<String, KernelSymbol> = analysis.byName
 
+    /**
+     * 全部策略里出现过的候选符号名 —— 用来预建 [fuzzy] 索引。
+     */
+    private val candidates: Set<String> = buildSet {
+        fun add(l: List<String>) = addAll(l)
+        for (spec in specs) {
+            for (st in spec.strategies) {
+                when (st) {
+                    is Strategy.Symbol -> add(st.names)
+                    is Strategy.SymbolPlus -> add(st.base)
+                    is Strategy.FopsSlot -> { add(st.fops); add(st.fallback) }
+                    is Strategy.ImageU32 -> add(st.base)
+                    is Strategy.CtlTableData -> add(st.dataSymbols)
+                }
+            }
+        }
+    }
+
+    /**
+     * 「名字里**含**这个片段」的索引 —— 只收录**唯一命中**的片段。
+     *
+     * ### 为什么需要它
+     *
+     * Linux 6.12 把 ashmem 改成了 **Rust 实现**，kallsyms 里是 legacy mangled 名：
+     *
+     * ```
+     * _RNvMs4_NtCsdfZWD8DztAw_6kernel10miscdeviceINtB5_16MiscdeviceVTable
+     *   NtCs232Q5cNN6Ho_11ashmem_rust6AshmemE5ioctlB14_
+     * ```
+     *
+     * 里面既有 **crate hash**（`Cs232Q5cNN6Ho_`）也有**回代索引**（`B14_`），
+     * 换一次编译就变 —— 全名**根本没法硬编码**。
+     * 但尾段 `6AshmemE5ioctl` 是稳定的（Rust 用 `<长度><名字>` 编码，长度由名字本身决定），
+     * 所以按它做**包含**匹配。
+     *
+     * ### 三条自我约束
+     *
+     * - **只在精确名没命中时才用**：`index` 里有的一律走精确匹配，避免节外生枝。
+     * - **歧义即放弃**：同一片段命中多于一个符号就不收录。宁可解析不出，
+     *   也不要随手挑一个 —— 挑错就是往错位置写内存，而且是静默的。
+     * - **片段太短不参与**：长度 < [MIN_FUZZY_LEN] 的（`init_task`、`ashmem_fops` 这类）
+     *   很容易是别人的子串，模糊匹配对它们只有害处。
+     */
+    private val fuzzy: Map<String, KernelSymbol> = run {
+        val hits = HashMap<String, MutableList<KernelSymbol>>()
+        for (frag in candidates) {
+            if (frag.length < MIN_FUZZY_LEN) continue
+            if (index.containsKey(frag)) continue
+            for (s in analysis.symbols) {
+                if (s.name.contains(frag)) hits.getOrPut(frag) { ArrayList() }.add(s)
+            }
+        }
+        hits.filterValues { it.size == 1 }.mapValues { it.value[0] }
+    }
+
     /** 内核镜像大小上限（符号偏移落在这个范围内才认为合理）。 */
     private val maxOffset = 0x2000_0000L
 
     private val failures = ArrayList<String>()
+
+    companion object {
+        /**
+         * 片段短于这个长度就不参与模糊匹配。
+         *
+         * 12 是照着真实候选定的：`init_task`(9)、`ashmem_fops`(11) 这类通用名
+         * 太容易是别人名字的子串；而需要模糊匹配的那几个都远长于它 ——
+         * `6AshmemE5ioctl`(14)、`15ASHMEM_FOPS_PTR`(17)、`generic_file_splice_read`(23)。
+         */
+        const val MIN_FUZZY_LEN = 12
+    }
 
     fun failures(): List<String> = failures.toList()
 
@@ -76,15 +142,21 @@ class OffsetResolver(
         }
 
         is Strategy.FopsSlot -> {
-            val fops = lookup(strategy.fops, Kind.DATA) ?: return null
-            val slotAddr = fops.address + strategy.slot
-            val v = image.readU64(slotAddr)
-            if (v != null && v != 0L && image.contains(v)) {
-                Hit(v, ResolveSource.IMAGE_READ, "读 ${fops.name}+${com.kernelpack.Hex.u(strategy.slot)}")
-            } else {
-                val fb = lookup(strategy.fallback, Kind.TEXT) ?: return null
-                Hit(fb.address, ResolveSource.KALLSYMS, "kallsyms 回退: ${fb.name}")
+            // [2026-10 修] 原来 `fops` 一查不到就 `return null`，**fallback 根本没机会**：
+            // fallback 只在"表找到了、但那个槽读不出来"时才用得上。
+            // 6.12 正好卡在这条上 —— 它把 ashmem 换成了 Rust 实现，`ashmem_fops`
+            // 这个符号压根不存在，于是连"退到 mangled 名"这一步都走不到。
+            // 表找不到与槽读不出，对 fallback 来说是同一件事：直接查符号名。
+            val fops = lookup(strategy.fops, Kind.DATA)
+            if (fops != null) {
+                val slotAddr = fops.address + strategy.slot
+                val v = image.readU64(slotAddr)
+                if (v != null && v != 0L && image.contains(v)) {
+                    return Hit(v, ResolveSource.IMAGE_READ, "读 ${fops.name}+${com.kernelpack.Hex.u(strategy.slot)}")
+                }
             }
+            val fb = lookup(strategy.fallback, Kind.TEXT) ?: return null
+            Hit(fb.address, ResolveSource.KALLSYMS, "kallsyms 回退: ${fb.name}")
         }
 
         is Strategy.ImageU32 -> {
@@ -109,9 +181,18 @@ class OffsetResolver(
             val s = index[n] ?: continue
             if (kind.matches(s)) return s
         }
+        // 精确名全不中 → 试「名字里含这个片段」（Rust mangled 名走这条，见 [fuzzy]）。
+        for (n in names) {
+            val s = fuzzy[n] ?: continue
+            if (kind.matches(s)) return s
+        }
         if (kind != Kind.ANY) {
             for (n in names) {
                 val s = index[n] ?: continue
+                return s
+            }
+            for (n in names) {
+                val s = fuzzy[n] ?: continue
                 return s
             }
         }

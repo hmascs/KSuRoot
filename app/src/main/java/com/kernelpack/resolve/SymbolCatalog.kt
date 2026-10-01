@@ -63,31 +63,85 @@ data class SymbolSpec(
  */
 object SymbolCatalog {
 
+    /**
+     * Linux 6.12 的 ashmem 是 **Rust 重写**的，kallsyms 里全是 legacy mangled 名：
+     *
+     * ```
+     * _RNvMs4_NtCsdfZWD8DztAw_6kernel10miscdeviceINtB5_16MiscdeviceVTable
+     *   NtCs232Q5cNN6Ho_11ashmem_rust6AshmemE5ioctlB14_
+     * ```
+     *
+     * 名字里既有 **crate hash**（`Cs232Q5cNN6Ho_`）也有**回代索引**（`B14_`）——
+     * 换一次编译就变，全名**没法硬编码**。
+     *
+     * 下面这些片段只取稳定的尾段（Rust 用 `<长度><名字>` 编码，长度由名字本身决定）：
+     * `6AshmemE5ioctl` = “Ashmem” 的 impl 方法 `ioctl`，与 crate hash 无关。
+     *
+     * 它们**只作为精确名之后的回退**，由
+     * [com.kernelpack.resolve.OffsetResolver] 的包含匹配消费；
+     * 命中不唯一就整个放弃（宁可解析不出，也不要挑错一个地址去写内存）。
+     *
+     * 来源：`6.12.38-android16` 真机镜像的符号表实测，七条各命中**唯一**一个符号。
+     */
+    const val RUST_ASHMEM_FOPS_PTR = "15ASHMEM_FOPS_PTR"
+    const val RUST_ASHMEM_IOCTL = "6AshmemE5ioctl"
+    const val RUST_ASHMEM_COMPAT_IOCTL = "6AshmemE12compat_ioctl"
+    const val RUST_ASHMEM_MMAP = "6AshmemE4mmap"
+    const val RUST_ASHMEM_OPEN = "6AshmemE4open"
+    const val RUST_ASHMEM_RELEASE = "6AshmemE7release"
+    const val RUST_ASHMEM_SHOW_FDINFO = "6AshmemE11show_fdinfo"
+
     val NEO11_OFFSETS: List<SymbolSpec> = listOf(
         SymbolSpec(
             "ASHMEM_MISC_FOPS",
-            // 同一个东西，两个时期的符号名：
-            //   厂商 6.1（如 OPPO 6.1.75）= `ashmem_misc`（单数）
+            // 同一个东西，三个时期的符号名：
+            //   厂商 6.1（如 OPPO 6.1.75）      = `ashmem_misc`（单数）
             //   上游 GKI 6.1（如 Google 6.1.145）= `ashmem_miscs`（复数）
-            // 两者都是 `struct miscdevice`，`fops` 槽都在 +0x10。
+            //   6.12（Rust 重写）               = mangled 名里的 `15ASHMEM_FOPS_PTR`
+            // 三者都是 `struct miscdevice`，`fops` 槽都在 +0x10。
             // 已在 6.1.145 的 Image 里读初值实证：`ashmem_miscs+0x10 == &ashmem_fops`，
             // 且 `ashmem_fops+0x50 == ashmem_ioctl`（与 ASHMEM_COMPAT_IOCTL 的策略互证）。
-            listOf(Strategy.SymbolPlus(listOf("ashmem_misc", "ashmem_miscs"), 0x10, Kind.DATA)),
-            note = "miscdevice.fops 槽；厂商版叫 ashmem_misc，上游 GKI 叫 ashmem_miscs",
+            listOf(
+                Strategy.SymbolPlus(listOf("ashmem_misc", "ashmem_miscs"), 0x10, Kind.DATA),
+                Strategy.SymbolPlus(listOf(RUST_ASHMEM_FOPS_PTR), 0x10, Kind.DATA),
+            ),
+            note = "miscdevice.fops 槽；厂商叫 ashmem_misc，GKI 叫 ashmem_miscs，6.12 是 Rust 的 ASHMEM_FOPS_PTR",
         ),
-        SymbolSpec("ASHMEM_FOPS", listOf(Strategy.Symbol(listOf("ashmem_fops"), Kind.DATA))),
-        SymbolSpec("ASHMEM_IOCTL", listOf(Strategy.Symbol(listOf("ashmem_ioctl"), Kind.TEXT))),
+        SymbolSpec(
+            "ASHMEM_FOPS",
+            listOf(
+                Strategy.Symbol(listOf("ashmem_fops"), Kind.DATA),
+                // 6.12 没有 `ashmem_fops` 这个符号：Rust 版把 fops 表指针放在
+                // `ASHMEM_FOPS_PTR`（miscdevice 的 repr(transparent) 包装）的 +0x10 处，
+                // 所以「读这个槽」就等于拿到 fops 表地址。
+                Strategy.FopsSlot(listOf(RUST_ASHMEM_FOPS_PTR), 0x10, emptyList()),
+            ),
+            note = "6.12 走 Rust：读 ASHMEM_FOPS_PTR+0x10 取回 fops 表地址",
+        ),
+        SymbolSpec(
+            "ASHMEM_IOCTL",
+            listOf(Strategy.Symbol(listOf("ashmem_ioctl", RUST_ASHMEM_IOCTL), Kind.TEXT)),
+        ),
         SymbolSpec(
             "ASHMEM_COMPAT_IOCTL",
             listOf(
-                Strategy.FopsSlot(listOf("ashmem_fops"), 0x50, listOf("compat_ashmem_ioctl", "ashmem_compat_ioctl")),
+                // 传统内核：`ashmem_fops` 有符号，直接读表的 +0x50 槽。
+                // 6.12：`ashmem_fops` 不存在 → 走 fallback，用 Rust 那个 mangled 名。
+                Strategy.FopsSlot(
+                    listOf("ashmem_fops"),
+                    0x50,
+                    listOf("compat_ashmem_ioctl", "ashmem_compat_ioctl", RUST_ASHMEM_COMPAT_IOCTL),
+                ),
             ),
-            note = "多数内核里 compat 版本没有独立 kallsyms 条目，直接读 fops 表",
+            note = "多数内核里 compat 版本没有独立 kallsyms 条目，直接读 fops 表；6.12 用 Rust mangled 名回退",
         ),
-        SymbolSpec("ASHMEM_MMAP", listOf(Strategy.Symbol(listOf("ashmem_mmap"), Kind.TEXT))),
-        SymbolSpec("ASHMEM_OPEN", listOf(Strategy.Symbol(listOf("ashmem_open"), Kind.TEXT))),
-        SymbolSpec("ASHMEM_RELEASE", listOf(Strategy.Symbol(listOf("ashmem_release"), Kind.TEXT))),
-        SymbolSpec("ASHMEM_SHOW_FDINFO", listOf(Strategy.Symbol(listOf("ashmem_show_fdinfo"), Kind.TEXT))),
+        SymbolSpec("ASHMEM_MMAP", listOf(Strategy.Symbol(listOf("ashmem_mmap", RUST_ASHMEM_MMAP), Kind.TEXT))),
+        SymbolSpec("ASHMEM_OPEN", listOf(Strategy.Symbol(listOf("ashmem_open", RUST_ASHMEM_OPEN), Kind.TEXT))),
+        SymbolSpec("ASHMEM_RELEASE", listOf(Strategy.Symbol(listOf("ashmem_release", RUST_ASHMEM_RELEASE), Kind.TEXT))),
+        SymbolSpec(
+            "ASHMEM_SHOW_FDINFO",
+            listOf(Strategy.Symbol(listOf("ashmem_show_fdinfo", RUST_ASHMEM_SHOW_FDINFO), Kind.TEXT)),
+        ),
 
         SymbolSpec("CONFIGFS_READ_ITER", listOf(Strategy.Symbol(listOf("configfs_read_iter"), Kind.TEXT))),
         SymbolSpec("CONFIGFS_BIN_WRITE_ITER", listOf(Strategy.Symbol(listOf("configfs_bin_write_iter"), Kind.TEXT))),

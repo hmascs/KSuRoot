@@ -297,7 +297,21 @@ object BaselineRegistry {
         id = "baseline-6-12-honor",
         variantLabel = "honor-ylp-w00-6.12.38",
         kernelVersion = "6.12",
-        imageBase = 0xffffffc080000000uL.toLong(),
+        // [2026-10 修] 这里原来填的是 0xffffffc080000000（6.12 GKI 的**实际**运行基址），
+        // 但 imageBase 的语义是**载荷编译时烤进去的那个常量**，不是目标内核的基址 ——
+        // 目标基址由 SpecKind.BASE 负责改写。
+        //
+        // 而这份 .so 是照 `载荷构建/targets/baseline-6.12-gki/target.h` 编的，
+        // 其中 `KIMAGE_TEXT_BASE = 0xffffffc008000000`。
+        //
+        // 填错的后果是**静默的**：`from == to` 让 KIMAGE_TEXT_BASE 判成"无需修改"，
+        // 而 `absFrom = oldBase + off` 算出的绝对地址一个都匹配不上，
+        // 于是"绝对地址形式"的构造点**全部漏改**。实测对照：
+        //   6.1 档（填对） → 已替换 13 项 39 处
+        //   6.12 档（填错）→ 已替换  7 项  9 处
+        // 判据可以用 ConstantScanner 直接问 .so（见 kpvalidate 的 `--sites`）：
+        //   FOPS@0xffffffc009280b50 = 2 个构造点；FOPS@0xffffffc081280b50 = 0 个。
+        imageBase = 0xffffffc008000000uL.toLong(),
         abi = com.kernelpack.profile.AbiProfile(
             id = "abi-6-12-honor",
             kernelSeries = "6.12",
@@ -311,7 +325,26 @@ object BaselineRegistry {
         // 与 6.1 族不同 —— 结构体偏移是编译期烤死的，不能跨族抄。
         symbolOffsets = linkedMapOf(
            "ASHMEM_MISC_FOPS" to 0x217cb80L,
-           "ASHMEM_FOPS" to 0x1280b50L,
+           // [2026-10] 这两条**刻意不登记** —— 不是漏了，是 6.12 上它们走不通，
+           // 而且载荷已经改成不再依赖它们：
+           //
+           //  · ASHMEM_FOPS：6.12 的 ashmem 换成了 Rust 实现，`ashmem_fops`
+           //    这张表**没有 kallsyms 符号**（符号表里只有
+           //    `_RNvMs4_...MiscdeviceVTableNtCs..._11ashmem_rust6AshmemE<方法>B<N>_`
+           //    这些 mangled 方法名），表地址运行时才写进 miscdevice 的 fops 槽
+           //    （= ASHMEM_MISC_FOPS 那一格），**构建期拿不到**。
+           //    载荷已改为运行时从槽里读：target.h 定义
+           //    TARGET_ASHMEM_FOPS_UNSYMBOLED，fops.c 走 ashmem_fops_from_misc()。
+           //
+           //  · SECURITY_HOOK_HEADS：Linux 6.4+ 把它改成了 static_call，
+           //    6.12 的符号表里**根本没有**（实测 0 个匹配）。
+           //    旁证：上游 GhostLockKernelOffsets 的 6.12 档位也写着
+           //    `off_security_hook_heads to 0L`；我方载荷里它的构造点同样是 0
+           //    （用 ConstantScanner 直接问过 .so，见 kpvalidate 的 --sites）。
+           //
+           // 登记了却解析不出 → 符号对齐闸门会**如实阻断**，那是设计不是 bug。
+           // 所以这里只有两条路：让载荷不依赖它们，或者承认这一档打不出来。
+           // 本轮选的是前者，并把理由留在这里。
            "ASHMEM_IOCTL" to 0xc38d28L,
            "ASHMEM_COMPAT_IOCTL" to 0xc39660L,
            "ASHMEM_MMAP" to 0xc396b8L,
@@ -326,7 +359,6 @@ object BaselineRegistry {
            "ROOT_TASK_GROUP" to 0x261a580L,
            "SELINUX_BLOB_SIZES" to 0x18084e8L,
            "SELINUX_ENFORCING" to 0x26663c8L,
-           "SECURITY_HOOK_HEADS" to 0x15ce478L,
            "KMALLOC_CACHES" to 0x15cdfb8L,
            "ANON_PIPE_BUF_OPS" to 0x1109910L,
            "SLIDE_LOGGERS_0_1" to 0x23e20e8L,
