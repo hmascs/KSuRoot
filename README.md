@@ -174,7 +174,7 @@
 可重放配方在 [`载荷构建/README.md`](载荷构建/README.md)。
 产物：175776 B / 175760 B（旧 135184 B）。
 
-### 登记档位：51（通用）+ 52（蓝厂）= **103 档**
+### 登记档位：53（通用）+ 54（蓝厂）= **107 档**
 
 引入上游 GhostLock 源码登记的 **50 个内核适配**（每档 9 个符号地址 + 结构体族），
 让"通用方案"从 1 档扩到 51 档；蓝厂方案把这 51 档全部挂上 vr.ko 绕过，成为 52 档
@@ -219,7 +219,7 @@
 
 | | 症状 | 根因 | 修法 |
 |---|---|---|---|
-| 第 1 层 | **两张表** | 路由查 `BaselineRegistry.allEntries`（103 档），打包却查 `BaselineProfiles.byId`（只有 2 档 6.6）→ 查不到就兜底回落 PD2520 | 统一到 `BaselineRegistry.byId` / `findByBytes` |
+| 第 1 层 | **两张表** | 路由查 `BaselineRegistry.allEntries`（107 档），打包却查 `BaselineProfiles.byId`（只有 2 档 6.6）→ 查不到就兜底回落 PD2520 | 统一到 `BaselineRegistry.byId` / `findByBytes` |
 | 第 2 层 | **两套词汇** | 上游档的 `abi.kernelSeries` 填的是**三段小版本**（`6.6.118`），闸门比的却是**两段大系列**（`6.6`）→ **50 档一档都构建不出来** | 拆开两个语义：路由键保留三段，ABI 比较键压成两段 |
 
 顺带修掉同源的第 3 处：`lookup()` / `coverageReport()` / `availableLabels()` 也只查那 2 档，
@@ -283,7 +283,7 @@
 - **一键提权**：基于 CVE-2026-43499 内核漏洞完成提权并安装 KernelSU，无需解锁 Bootloader
 - **免 ADB**：**内核 6.1 / 6.6 / 6.12 三族**可直接在设备上完成提权，不需要电脑、不需要 ADB；更早的内核才需要 Shizuku（ADB）授权
 - **两种载荷来源，主页自由切换**（切换即时生效，无需重启）：
-  - **内置厂商载荷** —— 随包携带 **123 条**登记（127 个 `.so`），**完全离线**，按设备型号 + 内核版本 + 内核 commit 自动匹配
+  - **内置厂商载荷** —— 随包携带 **122 条**登记（127 个 `.so`），**完全离线**，按设备型号 + 内核版本 + 内核 commit 自动匹配
   - **自定义导入 / 构建产物** —— 导入任意 `.so`（ELF 魔数校验、256MB 上限、SHA-256 指纹），随时移除
 - **双执行模式**：默认原生执行，可选 Shizuku 模式
 
@@ -405,7 +405,7 @@ app/src/main/java/com/kernelpack/
 ├── resolve/   OffsetResolver：符号 → 偏移，推导值单独标注
 ├── model/     KernelImageAnalysis / TargetProfile / OffsetEntry
 ├── policy/    BuildGate（硬闸门）· KernelSchemeSelector（选线）
-├── profile/   BaselineRegistry（103 档）· GhostLockKernelOffsets · GhostLockKernelCatalog
+├── profile/   BaselineRegistry（107 档）· GhostLockKernelOffsets · GhostLockKernelCatalog
 ├── offsets/   GhostLock offsets.json 互通：schema / IO / 合并 / 键映射
 ├── offset/    OffsetProvenance：逐条偏移的来源与可信度
 ├── vivo/      VrKoBypass：蓝厂 vr.ko 反 root 绕过（数据层）
@@ -413,7 +413,7 @@ app/src/main/java/com/kernelpack/
 └── SymbolAlignment.kt  双向符号对齐闸门
 ```
 
-对应的单测在 `app/src/test/java/com/kernelpack/`（21 个文件）。
+对应的单测在 `app/src/test/java/com/kernelpack/`（33 个文件）。
 
 ## 已知限制（如实说明）
 
@@ -456,12 +456,12 @@ KSuRoot is a one-click KernelSU rooting tool built on the **CVE-2026-43499 (Ghos
 kernel vulnerability. This branch syncs [Root-My-Galaxy](https://github.com/BuSung-dev/Root-My-Galaxy)
 v0.2.6 and adds a **payload builder**, **bundled vendor payloads** and a liquid-glass UI.
 
-Version **4.0.0**. Highlights:
+Version **4.1.0**. Highlights:
 
 - **Three struct families: 6.1 / 6.6 / 6.12.** Not inferred from version numbers — each family has its
   own baseline library (`libbaseline_6_1.so`, `libionstack.so` / `libbs.so`, `libbaseline_6_12.so`),
   because struct offsets are **baked in at compile time and cannot be patched**.
-- **103 registered baseline entries** (51 universal + 52 vivo), including **50 kernel adaptations
+- **107 registered baseline entries** (53 universal + 54 vivo), including **50 kernel adaptations
   taken from [ghostlock-app](https://github.com/YuKongA/ghostlock-app)** — data and method only,
   its C code is not copied (Apache-2.0, license shipped in `app/src/main/assets/`).
   All 50 are marked `UPSTREAM` + `beta`: the data is real, but **we have not verified it on hardware**.
@@ -471,6 +471,6 @@ Version **4.0.0**. Highlights:
 - **`offsets.json` interoperability** with GhostLock: read / write / merge, round-trip safe for unknown keys.
 - **122 bundled vendor payloads** (127 `.so`), fully offline, matched by model + kernel version + commit
   with a three-tier fallback that labels the weaker tiers as "may work" so you decide.
-- **304 unit tests**, debug + release both compile.
+- **389 unit tests**, debug + release both compile.
 
 For research and educational use only. Licensed under Apache-2.0.

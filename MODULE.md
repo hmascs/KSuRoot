@@ -39,7 +39,7 @@ app/src/main/java/com/kernelpack/
 ├── resolve/                   KernelImage + OffsetResolver
 ├── model/                     KernelImageAnalysis / TargetProfile / OffsetEntry / ResolveSource
 ├── policy/                    ★ BuildGate（硬闸门）· KernelSchemeSelector（选线）
-├── profile/                   ★ BaselineRegistry（103 档）· GhostLockKernelOffsets
+├── profile/                   ★ BaselineRegistry（107 档）· GhostLockKernelOffsets
 │                              · GhostLockKernelCatalog · Profiles / AbiProfile
 ├── offsets/                   ★ GhostLock offsets.json 互通
 │                              （schema / IO / 合并 / 键映射 / 统一解析）
@@ -51,7 +51,7 @@ app/src/main/java/com/kernelpack/
 │                              · XzDecoder · OtaPayloadExtractor
 └── export/                    target.h / offsets.json 导出
 
-app/src/test/java/com/kernelpack/    对应的单测（26 个文件）
+app/src/test/java/com/kernelpack/    对应的单测（40 个文件）
 
 app/src/main/jniLibs/arm64-v8a/
 ├── libbaseline_6_1.so         ★ 自编 6.1 族基线（带 vr.ko 抹标记，配方见 载荷构建/）
