@@ -33,8 +33,8 @@ class RootHandoffTest {
      * 跟"这台机器的 su 装在哪"毫无关系。把文件系统依赖摘掉，测的才是原本要测的东西。
      */
     private fun fakeShell(
-        exec: (List<String>, Long) -> RootShell.ShellOutcome,
         su: String = "/product/bin/su",
+        exec: (List<String>, Long) -> RootShell.ShellOutcome,
     ) = RootShell(exec = exec, suCandidates = listOf(su), suExists = { true })
 
     @Test
