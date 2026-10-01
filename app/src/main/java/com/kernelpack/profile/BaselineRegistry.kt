@@ -224,6 +224,55 @@ object BaselineRegistry {
                 "内置载荷的编译期常量取自上游 frankel-CP2A.260605.012/target.h。",
             ),
         ),
+        // ——— 6.1 / 6.12 族基线 —————————————————————————————
+        //
+        // 【为什么必须登记成条目】这两份 `libbaseline_6_1.so` / `libbaseline_6_12.so`
+        // 一直**只在 [BaselineLibraries] 里按族选库**，却从没进过本表 ——
+        // 于是三级路由的第 3 级（大系列）永远查不到它们，用户看到的是
+        // 「还没有为「蓝厂方案 × 内核 6.1」登记偏移产物」，而库其实就在包里。
+        //
+        // 【为什么 `kernelSeries` 填两段大系列】第 1 级比完整串、第 2 级比小版本，
+        // 派生的上游档存的是三段小版本；只有**大系列**这一层能兜住"该系列下任意小版本"。
+        // 这正是第 3 级存在的意义。
+        //
+        // 【为什么两个方案各一条】6.1 / 6.12 两族**共用同一份库**
+        // （[BaselineLibraries.forFamily] 不区分方案），但路由是按方案走的：
+        // 蓝厂方案要求载荷带 vr.ko 抹标记，而这两份库重编后 `vr detag` = 2，带得住。
+        //
+        // ⚠️ `beta = true`：产物合法、符号值逐条取自构建用的 target.h，
+        // 但**没有任何真机验证** —— `vr detag` 只证明代码编进去了。
+        BaselineEntry(
+            profile = BaselineProfiles.BASELINE_6_1,
+            scheme = BaselineScheme.UNIVERSAL,
+            device = "tokay",
+            firmware = "CP2A.260605.012",
+            kernelSeries = "6.1",
+            gkiBranch = null,
+            source = "自编族基线 · 载荷构建/targets/baseline-6.1-tokay/target.h（配方见 载荷构建/README.md）",
+            offsets = familyOffsets(BaselineProfiles.BASELINE_6_1, "载荷构建/targets/baseline-6.1-tokay"),
+            feasibility = null,
+            notes = listOf(
+                "6.1 族通用档：结构体取 F6_1 族，符号值逐条登记，构建时按 boot.img 改写。",
+                "不带 neutralize_vr()（Option B）：本族没有可核实的 tracepoint 偏移。",
+            ),
+            beta = true,
+        ),
+        BaselineEntry(
+            profile = BaselineProfiles.BASELINE_6_12,
+            scheme = BaselineScheme.UNIVERSAL,
+            device = "honor-ylp-w00",
+            firmware = "6.12.38",
+            kernelSeries = "6.12",
+            gkiBranch = null,
+            source = "自编族基线 · 载荷构建/targets/baseline-6.12-gki/target.h（配方见 载荷构建/README.md）",
+            offsets = familyOffsets(BaselineProfiles.BASELINE_6_12, "载荷构建/targets/baseline-6.12-gki"),
+            feasibility = null,
+            notes = listOf(
+                "6.12 族通用档：结构体取 F6_12 族（TASK_CRED_OFF=0x900 等，与 6.1 族不同）。",
+                "符号来源含 CROSS_REFERENCE（荣耀 6.12.38 实测），构建时按 boot.img 的值逐项改写。",
+            ),
+            beta = true,
+        ),
     )
 
     /**
@@ -327,10 +376,47 @@ object BaselineRegistry {
                 GhostLockKernelOffsets.StructFamily.F6_1,
             ),
         ),
-        // 符号集由 6.1 族的 target.h 提供（25 键齐全），此处留空 ——
-        // 真正的值在构建时由 boot.img 解析或从该 target.h 导入，
-        // 这里不写死任何数值，避免出现"看着有值、其实是别的内核的"。
-        symbolOffsets = emptyMap(),
+        // 符号旧值**必须登记**：打补丁靠它定位 .so 里烤着的字面量，
+        // 而 SymbolAlignment 又拿它的键集当"基线里有哪些常量"的判据 ——
+        // 留空的话这两件事都做不了（这正是 6.1 / 6.12 长期打不了包的第二个原因）。
+        //
+        // 值逐条取自构建这份 .so 时用的那份 target.h：
+        // `载荷构建/targets/baseline-6.1-tokay/target.h`（构建配方 README §2 记载
+        // 它与当初的构建现场 `/root/b6/target.h` 逐字节相同）。
+        // ⭐ 标记的两条在 target.h 里是**别名**（`#define SLIDE_INIT_TASK_OFF INIT_TASK_OFF`），
+        // 这里按别名解析后的值登记。
+        //
+        // 不在这里的 3 个键（SLIDE_NFULNL_LOG_PACKET / SYS_EXIT_TP / RVH_COMMIT_CREDS_TP）
+        // 在 target.h 里**故意未定义** —— 它们对应 neutralize_vr()（Option B），
+        // 那两个 tracepoint 偏移本族没有可核实的来源。它们在 SymbolCatalog 里标了
+        // `required = false`，因此不阻断打包（见 SymbolAlignment 的 optionalKeys）。
+        symbolOffsets = linkedMapOf(
+           "ASHMEM_MISC_FOPS" to 0x217cb80L,
+           "ASHMEM_FOPS" to 0x1280b50L,
+           "ASHMEM_IOCTL" to 0xc38d28L,
+           "ASHMEM_COMPAT_IOCTL" to 0xc39660L,
+           "ASHMEM_MMAP" to 0xc396b8L,
+           "ASHMEM_OPEN" to 0xc398d8L,
+           "ASHMEM_RELEASE" to 0xc39960L,
+           "ASHMEM_SHOW_FDINFO" to 0xc39a80L,
+           "CONFIGFS_READ_ITER" to 0x464400L,
+           "CONFIGFS_BIN_WRITE_ITER" to 0x464930L,
+           "COPY_SPLICE_READ" to 0x3e5fd4L,
+           "NOOP_LLSEEK" to 0x3986dcL,
+           "INIT_TASK" to 0x201f640L,
+           "ROOT_TASK_GROUP" to 0x2208580L,
+           "SELINUX_BLOB_SIZES" to 0x15ceb88L,
+           "SELINUX_ENFORCING" to 0x225a420L,
+           "SECURITY_HOOK_HEADS" to 0x15ce478L,
+           "KMALLOC_CACHES" to 0x15cdfb8L,
+           "ANON_PIPE_BUF_OPS" to 0x1109910L,
+           "SLIDE_LOGGERS_0_1" to 0x2012920L,
+           "SLIDE_NFULNL_LOGGER" to 0x20129d0L,
+           "SLIDE_RANDOM_BOOT_ID_DATA" to 0x2137d08L,
+           "SLIDE_SYSCTL_BOOTID" to 0x227b498L,
+           ★ "SLIDE_INIT_TASK" to 0x201f640L,
+           ★ "SLIDE_ROOT_TASK_GROUP" to 0x2208580L,
+        ),
     )
 
     /**
@@ -364,7 +450,36 @@ object BaselineRegistry {
                 GhostLockKernelOffsets.StructFamily.F6_12,
             ),
         ),
-        symbolOffsets = emptyMap(),
+        // 同 BASELINE_6_1：旧值取自 `载荷构建/targets/baseline-6.12-gki/target.h`。
+        // 注意 6.12 的 TASK_CRED_OFF=0x900 / TASK_TASKS_OFF=0x638 / TASK_SECCOMP_OFF=0x9C8
+        // 与 6.1 族不同 —— 结构体偏移是编译期烤死的，不能跨族抄。
+        symbolOffsets = linkedMapOf(
+           "ASHMEM_MISC_FOPS" to 0x217cb80L,
+           "ASHMEM_FOPS" to 0x1280b50L,
+           "ASHMEM_IOCTL" to 0xc38d28L,
+           "ASHMEM_COMPAT_IOCTL" to 0xc39660L,
+           "ASHMEM_MMAP" to 0xc396b8L,
+           "ASHMEM_OPEN" to 0xc398d8L,
+           "ASHMEM_RELEASE" to 0xc39960L,
+           "ASHMEM_SHOW_FDINFO" to 0xc39a80L,
+           "CONFIGFS_READ_ITER" to 0x464400L,
+           "CONFIGFS_BIN_WRITE_ITER" to 0x464930L,
+           "COPY_SPLICE_READ" to 0x3e5fd4L,
+           "NOOP_LLSEEK" to 0x3986dcL,
+           "INIT_TASK" to 0x23ecdc0L,
+           "ROOT_TASK_GROUP" to 0x261a580L,
+           "SELINUX_BLOB_SIZES" to 0x18084e8L,
+           "SELINUX_ENFORCING" to 0x26663c8L,
+           "SECURITY_HOOK_HEADS" to 0x15ce478L,
+           "KMALLOC_CACHES" to 0x15cdfb8L,
+           "ANON_PIPE_BUF_OPS" to 0x1109910L,
+           "SLIDE_LOGGERS_0_1" to 0x23e20e8L,
+           "SLIDE_NFULNL_LOGGER" to 0x23e2198L,
+           "SLIDE_RANDOM_BOOT_ID_DATA" to 0x2687770L,
+           "SLIDE_SYSCTL_BOOTID" to 0x2501070L,
+           ★ "SLIDE_INIT_TASK" to 0x23ecdc0L,
+           ★ "SLIDE_ROOT_TASK_GROUP" to 0x261a580L,
+        ),
     )
 
     /**
@@ -554,6 +669,21 @@ object BaselineRegistry {
         val where = "NebuSec/CyberMeowfia · IonStack · frankel-CP2A.260605.012"
         return buildOffsets(BaselineProfiles.IONSTACK_P10, where)
     }
+
+    /**
+     * 6.1 / 6.12 两份**自编族基线**的偏移集。
+     *
+     * 与 [pd2520Offsets] / [ionstackOffsets] 同构：值全部来自 profile 自己登记的
+     * [BaselineProfile.symbolOffsets]（那些值逐条取自构建用的 `target.h`），
+     * 本函数只负责包上逐条来源标注，**不新增任何数值**。
+     *
+     * ⚠️ [buildOffsets] 里那条 `RT_WAITER_LAYOUT` 的 `measuredOn` 仍写 6.6.89 ——
+     * 那是**实测**这台机器，不是笔误：三族的 `rt_mutex_waiter` 布局在各自 target.h 里
+     * 都是 `task@0x50 / lock@0x58 / wake_state@0x60 / ww_ctx@0x68`（112 字节），
+     * 所以这一条对三族通用。改掉它反而是伪造测量来源。
+     */
+    private fun familyOffsets(profile: BaselineProfile, where: String): OffsetSet =
+        buildOffsets(profile, where)
 
     /**
      * 把 [BaselineProfile.symbolOffsets] 的键逐条转成带标注的 [OffsetSet]。

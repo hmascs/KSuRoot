@@ -1116,7 +1116,7 @@ private fun OverviewPage(
                     )
                     Text(
                         text = stringResource(R.string.app_name),
-                        style = MiuixTheme.textStyles.headline1,
+                        style = MiuixTheme.textStyles.title1,
                     )
                     Spacer(modifier = Modifier.weight(1f))
                     Text(
@@ -2429,7 +2429,7 @@ private fun HistoryList(
         item {
             Text(
                 text = stringResource(R.string.history_title),
-                style = MiuixTheme.textStyles.headline1,
+                style = MiuixTheme.textStyles.title1,
                 modifier = Modifier.padding(top = Spacing.page, bottom = Spacing.item),
             )
         }
@@ -2559,7 +2559,7 @@ private fun HistoryDetail(
                 }
                 Text(
                     stringResource(R.string.history_detail_title),
-                    style = MiuixTheme.textStyles.headline1,
+                    style = MiuixTheme.textStyles.title1,
                     modifier = Modifier.weight(1f),
                 )
                 // 保存到**指定目录**（系统文件选择器，用户可以挑任意位置）
@@ -2978,7 +2978,7 @@ private fun SettingsPage(
     ) {
         item {
             Column(modifier = Modifier.padding(top = Spacing.page, bottom = Spacing.card)) {
-                Text(stringResource(R.string.settings), style = MiuixTheme.textStyles.headline1)
+                Text(stringResource(R.string.settings), style = MiuixTheme.textStyles.title1)
                 Text(
                     stringResource(R.string.version_format, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE),
                     style = MiuixTheme.textStyles.body1,
@@ -3929,7 +3929,7 @@ private fun PayloadBuilderPage(
                     )
                     Text(
                         text = stringResource(R.string.builder_heading),
-                        style = MiuixTheme.textStyles.headline1,
+                        style = MiuixTheme.textStyles.title1,
                     )
                 }
                 Text(

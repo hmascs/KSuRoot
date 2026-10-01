@@ -79,4 +79,58 @@ class SymbolAlignmentTest {
     fun `两个空集合算对齐 —— 不该误报`() {
         assertTrue(SymbolAlignment.check(emptySet(), emptySet()).aligned)
     }
+
+    // ——— 可选键豁免（2026-10 加）—————————————————————————
+    //
+    // 这一组守的是**「可选键缺席不该让整个系列打不了包」**。
+    //
+    // 由来很具体：6.1 / 6.12 两份自编基线**故意不编** `neutralize_vr()`（Option B），
+    // 因为那两个 tracepoint 偏移在两族上没有可核实的来源（见 载荷构建/README.md §7）。
+    // 它们在 SymbolCatalog 里标了 `required = false`，但那个字段**从来没有读取点** ——
+    // 于是闸门按硬要求处理，这两份基线永远过不了，界面上就是
+    // 「还没有为「蓝厂方案 × 内核 6.1」登记偏移产物」。
+    //
+    // ⚠️ 豁免只能来自**显式标注**，不能靠"少给几个键"来放宽 —— 下面第三条守这个。
+
+    private val optional = setOf("SYS_EXIT_TP", "RVH_COMMIT_CREDS_TP")
+
+    @Test
+    fun `解析到但基线没有的可选键 —— 不阻断，但必须列进豁免清单`() {
+        val r = SymbolAlignment.check(base, base + optional, optionalKeys = optional)
+        assertTrue("可选键缺席不该阻断打包", r.aligned)
+        assertTrue("可选键不该出现在 unpatchable 里", r.unpatchable.isEmpty())
+        assertEquals(
+            "豁免了哪些键必须说出来，不能悄悄放过",
+            optional.toList().sorted(),
+            r.skippedOptional,
+        )
+        assertTrue("豁免说明里应点名这些键", r.optionalNotice().any { it.contains("SYS_EXIT_TP") })
+    }
+
+    @Test
+    fun `基线有但没解析出的可选键 —— 同样不阻断`() {
+        val r = SymbolAlignment.check(base + optional, base, optionalKeys = optional)
+        assertTrue("可选键缺席不该阻断打包", r.aligned)
+        assertTrue("可选键不该出现在 unresolved 里", r.unresolved.isEmpty())
+        assertEquals(optional.toList().sorted(), r.skippedOptional)
+    }
+
+    @Test
+    fun `豁免只认显式标注 —— 没标成可选的键照样硬拦`() {
+        // 同样的两个键，**不**传 optionalKeys：必须按原来的严格语义拦住。
+        val r = SymbolAlignment.check(base, base + optional)
+        assertFalse("没显式标成可选，就必须拦住", r.aligned)
+        assertEquals(optional.toList().sorted(), r.unpatchable)
+        assertTrue("没有豁免时不应有豁免清单", r.skippedOptional.isEmpty())
+        assertTrue("没有豁免时不应有豁免说明", r.optionalNotice().isEmpty())
+    }
+
+    @Test
+    fun `可选键豁免不会放过必需键`() {
+        // 同时存在"可选键缺席"与"必需键缺席"：前者豁免、后者仍然拦。
+        val r = SymbolAlignment.check(base, base - "ASHMEM_FOPS" + optional, optionalKeys = optional)
+        assertFalse("必需键缺席必须拦住", r.aligned)
+        assertEquals(listOf("ASHMEM_FOPS"), r.unresolved)
+        assertEquals(optional.toList().sorted(), r.skippedOptional)
+    }
 }

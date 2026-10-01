@@ -7,7 +7,7 @@ import org.junit.Test
 /**
  * 方案覆盖规模的**验收断言**。
  *
- * 这组用例把"通用 51 档 / 蓝厂 50 档"这个目标钉在代码里 ——
+ * 这组用例把"通用 53 档 / 蓝厂 53 档"这个目标钉在代码里 ——
  * 否则以后谁动了 `entries` 或派生规则，覆盖规模会静默变化而没人发现。
  */
 class SchemeCoverageCountTest {
@@ -28,18 +28,24 @@ class SchemeCoverageCountTest {
     }
 
     @Test
-    fun `通用方案共 51 档 —— 50 档上游 + 1 档手写实测`() {
+    fun `通用方案共 53 档 —— 50 档上游 + 3 档手写实测`() {
+        // [2026-10 口径变更] 原来是「50 档上游 + 1 档手写（IONSTACK_P10）= 51」。
+        // 新增了两份**自编族基线**的登记档：6.1（tokay target.h）与 6.12（GhostLock 6_12
+        // + 荣耀 BTF）。它们本来就在包里、也被 BaselineLibraries 按族选用，
+        // 只是从没进过 entries —— 于是三级路由的第 3 级查不到，
+        // 用户看到的是「还没有为「蓝厂方案 × 内核 6.1」登记偏移产物」。
         val handWritten = universal.count { !it.profile.id.startsWith("up-") }
         val fromUpstream = universal.count { it.profile.id.startsWith("up-") }
-        assertEquals("手写实测档应为 1", 1, handWritten)
+        assertEquals("手写实测档应为 3（IONSTACK_P10 + 6.1 + 6.12）", 3, handWritten)
         assertEquals("上游档应为 50", 50, fromUpstream)
-        assertEquals("通用方案合计应为 51", 51, universal.size)
+        assertEquals("通用方案合计应为 53", 53, universal.size)
     }
 
     @Test
     fun `蓝厂方案从通用方案派生 50 档上游档`() {
         // 蓝厂派生的是通用方案的**每一档**；其中 50 档来自上游、
-        // 另有 1 档是通用方案原有的手写档派生（与蓝厂自己的 PD2520 同系列，会被实测档顶掉）。
+        // 另有 3 档是通用方案原有的手写档派生（IONSTACK_P10 / 6.1 / 6.12 ——
+        // 6.6 那一档会被蓝厂自己的 PD2520 实测档顶掉，但条目仍然存在）。
         val derivedFromUpstream = derived.count { it.profile.id.startsWith("up-") }
         assertEquals("从上游派生的蓝厂档应为 50", 50, derivedFromUpstream)
         assertEquals("派生总数应等于通用方案档数", universal.size, derived.size)

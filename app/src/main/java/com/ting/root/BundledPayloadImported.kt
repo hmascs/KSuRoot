@@ -19,7 +19,7 @@ package com.ting.root
  * ### 内核版本未知的条目
  *
  * 这批载荷多数是被 strip 过的，二进制里既无内核串也无指纹，
- * 机型只能从来源仓库路径得知 —— 全量 83 份里只有 26 份能读到内核版本。
+ * 机型只能从来源仓库路径得知 —— 全量 83 份里只有 27 份能读到内核版本。
  * 因此凡读不到内核版本的，一律置 [BundledPayload.kernelUnknown] = true，
  * **只能手动选择，绝不参与自动匹配** —— 拿错一份就是常量对不上、提权直接失败。
  */
@@ -553,6 +553,13 @@ internal object BundledPayloadImported {
             // 它没有源码，改不了；只能如实标出来，别让它看起来能用。
             vivoVrBypass = false,
             source = "ankitrawatgit/iQOO-Z9_5G-vivo-T3_5G-Root-GhostLock :: payload/build/cve-2026-43499-app.so",
+        ),
+        imported(
+            library = "libksu_vivo_ksurootissue8x100_k61145_a7ff.so", vendor = "vivo",
+            name = "vivo X100（PD2309）", keywords = listOf("pd2309", "v2309a"),
+            kernel = "6.1.145", build = "PD2309_A_16.2.14.0.W10.V000L1",
+            sha256 = "a7ff8a3988243272b17cfb3a06f16b9320d4d47167502672ff7e1cbc4260d0ff", size = 271432L, shortName = "",
+            source = "hmascs/KSuRoot-issue8-x100 :: x100preload.so",
         ),
         imported(
             library = "libksu_other_ghostlockcve202643499419_any_06b3.so", vendor = "xiaomi",

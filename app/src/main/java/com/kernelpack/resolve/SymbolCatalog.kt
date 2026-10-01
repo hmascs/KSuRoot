@@ -138,4 +138,19 @@ object SymbolCatalog {
         "SLIDE_ROOT_TASK_GROUP" to "ROOT_TASK_GROUP",
         "SLIDE_NFULNL_LOGGER" to "SLIDE_NFULNL_LOGGER",
     )
+
+    /**
+     * 标了 `required = false` 的那些键 —— 缺席**不阻断**打包。
+     *
+     * 这个出口的存在本身就是一处修复：`SymbolSpec.required` 从加进来那天起
+     * 就只有声明、没有读取点，于是"可选"只活在注释里，而
+     * [com.kernelpack.SymbolAlignment] 一律按硬要求处理。
+     * 后果很具体：6.1 / 6.12 两份自编基线**永远过不了对齐闸门**
+     * （它们故意不编 `neutralize_vr()`，见 `载荷构建/README.md` §7），
+     * 界面上表现为"这两个系列没有可用基线"。
+     *
+     * ⚠️ 只包含**显式**标成可选的键。必需键一个都不在这里。
+     */
+    val OPTIONAL_KEYS: Set<String> =
+        NEO11_OFFSETS.filterNot { it.required }.map { it.key }.toSet()
 }

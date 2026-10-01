@@ -119,22 +119,24 @@ class BaselineRoutingLookupTest {
     }
 
     @Test
-    fun `★ 两级路由（只给大系列）只对 6_6 有效 —— 6_1 与 6_12 必须带完整内核串`() {
-        // 这条把**当前的真实边界**钉下来，而不是假装它不存在。
+    fun `★ 大系列级路由（只给大系列）三个主线系列都通`() {
+        // [2026-10 口径变更] 这条原来断言 6.1 / 6.12 **查不到**大系列级登记档，
+        // 并把当时的原因写在注释里：那两族的登记档全按**小版本**建
+        // （上游 50 档 + 蓝厂派生，`kernelSeries` 形如 `6.1.145`），
+        // 所以只给 `6.1` 是查不到的。原注释末尾写着：
+        //     「若这是有意新增的，请同步更新本用例与 MAINLINE_SERIES 的文档」
         //
-        // 现状：只有 6.6 有"大系列级"的登记档（PD2520 / IONSTACK_P10，两条手写实测档）。
-        // 6.1 / 6.12 的登记档全部是**按小版本**建的（上游 50 档 + 蓝厂派生），
-        // `kernelSeries` 形如 `6.1.145` —— 所以只给 `6.1` 是查不到的。
+        // 现在就是那一次有意新增：6.1 / 6.12 两份**自编族基线**登记成了大系列级档位。
+        // 它们本来就是按整族服务的（结构体取 F6_1 / F6_12，符号构建时按 boot.img 改写），
+        // 不属于任何一个小版本 —— 按大系列登记才是对的。
         //
-        // 这不是缺陷：调用方（PayloadBuilderViewModel）走的是**三级路由**，
-        // 会把 boot.img 实测的完整内核串传进来。但**边界必须被测出来** ——
-        // 否则哪天三级路由退化成两级，6.1 / 6.12 会静默变成"没有基线"。
+        // 这条用例的作用**没变**，仍然是"把边界钉下来"：
+        // 以后谁再把某族的大系列级档位弄丢，这里立刻红，
+        // 而不是等用户在界面上撞到「还没有为…登记偏移产物」。
         for (scheme in listOf(BaselineScheme.UNIVERSAL, BaselineScheme.VIVO)) {
-            assertNotNull("${scheme.label} × 6.6 应当有的大系列级登记档", BaselineRegistry.profileIdFor(scheme, "6.6"))
-            for (series in listOf("6.1", "6.12")) {
-                assertNull(
-                    "${scheme.label} × $series 居然有了大系列级登记档 —— " +
-                        "若这是有意新增的，请同步更新本用例与 MAINLINE_SERIES 的文档",
+            for (series in BaselineRegistry.MAINLINE_SERIES) {
+                assertNotNull(
+                    "${scheme.label} × $series 应当有的大系列级登记档",
                     BaselineRegistry.profileIdFor(scheme, series),
                 )
             }

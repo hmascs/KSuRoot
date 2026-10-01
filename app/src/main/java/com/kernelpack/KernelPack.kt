@@ -17,6 +17,7 @@ import com.kernelpack.profile.BaselineRegistry
 import com.kernelpack.profile.BaselineScheme
 import com.kernelpack.resolve.KernelImage
 import com.kernelpack.resolve.OffsetResolver
+import com.kernelpack.resolve.SymbolCatalog
 import com.kernelpack.export.OffsetsJson
 import com.kernelpack.export.TargetHeaderWriter
 import com.kernelpack.policy.BuildGate
@@ -272,12 +273,19 @@ object KernelPack {
         val align = SymbolAlignment.check(
             baseKeys = baseline.symbolOffsets.keys,
             resolvedKeys = offsets.filterValues { it.resolved }.keys,
+            // 可选键（SymbolCatalog 里 required = false 的那几个）缺席不算致命：
+            // 6.1 / 6.12 的自编基线故意不编 neutralize_vr()，那两个 tracepoint
+            // 偏移没有可核实的来源 —— 把它们当硬要求，等于让这两族永远打不了包。
+            optionalKeys = SymbolCatalog.OPTIONAL_KEYS,
         )
         if (!align.aligned) {
             align.blockMessage(baseline.id, baseline.kernelVersion).forEach { log(it) }
             warnings.add("[X] 符号对不齐，已停止打包（详见日志）")
             return PackResult(analysis, profile, null, null, baseline, header, json, warnings)
         }
+        // 豁免必须**说出来**：可选键没参与改写，意味着它们对应的功能在本次产物里不可用。
+        // 不声不响地少改几个，是"硬拦一切"之外的另一种坏 —— 同样是让用户误判产物能力。
+        align.optionalNotice().forEach { log(it) }
 
         // 组装 patch 规格（两边已对齐，无需再跳过任何键）
         val specs = ArrayList<PatchSpec>()

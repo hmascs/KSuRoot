@@ -146,6 +146,8 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         discoveryJob?.cancel()
         discoveryJob = viewModelScope.launch(Dispatchers.IO) {
             val probe = NativeProbe.run()
+            // ↑ 阻塞调用，没有挂起点 —— cancel() 打断不了它。发布前必须重新确认。
+            if (!discoveryStillOwnsUi()) return@launch
             if (detectInstalled()) {
                 mutableState.value = InstallUiState(
                     phase = InstallPhase.Installed,
@@ -156,6 +158,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 return@launch
             }
             val localLabel = activeLocalPayloadLabel()
+            if (!discoveryStillOwnsUi()) return@launch
             if (localLabel != null) {
                 mutableState.value = InstallUiState(
                     phase = InstallPhase.Ready,
@@ -169,6 +172,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 // 全部改成本地解析：不再有 GitHub 往返，这一步是纯内存 + 一次文件 stat。
                 val snapshot = DeviceSnapshot.current(app)
                 val resolution = repository.bundledTarget(snapshot, allowSimilar = false)
+                if (!discoveryStillOwnsUi()) return@launch
                 mutableState.value = InstallUiState(
                     phase = InstallPhase.Ready,
                     message = app.getString(R.string.status_not_installed),
@@ -190,6 +194,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 // 所以 `similar != null` 已经蕴含 `snapshot != null`。
                 // 反过来写编译器会报 “Condition is always 'true'”，而且
                 // 那个顺序读起来像在检查两个独立条件 —— 与实际语义不符。
+                if (!discoveryStillOwnsUi()) return@launch
                 if (snapshot != null && similar != null) {
                     mutableState.value = InstallUiState(
                         phase = InstallPhase.Ready,
@@ -220,6 +225,30 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             }
         }
     }
+
+    /**
+     * 这一轮**探测**的结果还该不该发布到界面上。
+     *
+     * ## 为什么需要它
+     *
+     * [refresh] 里的 `NativeProbe.run()` 与 `activeLocalPayloadLabel()` 都是**阻塞**调用，
+     * 中间没有挂起点 —— 于是 [install] 开头那句 `discoveryJob?.cancel()` **打断不了**它们，
+     * 协程会一路跑到"发布状态"那一步才结束。
+     *
+     * 后果就是用户看到的现象：**正在提权，界面上方却显示「未安装」**。
+     * 时序是：`install()` 已经把 phase 推到 `Checking` / `Exploiting`，
+     * 几秒后这一轮探测才跑完，又把 `Ready +「未安装」`盖了回去；连 `busy` 都变回 false，
+     * 于是提权页顶部那句「请保持屏幕常亮」也被顶掉。
+     * 犯不犯全看 `NativeProbe` 那次进程启动要多久 —— 这也正是它**时有时无**的原因。
+     *
+     * ## 判据（两条都要）
+     *
+     * 1. `isActive` —— 自己有没有被下一次 [refresh] 取消掉；
+     * 2. `installJob?.isActive != true` —— 有没有安装已经接管了状态机。
+     *    一旦接管，画面就该归 [install] 管，探测结果再正确也是过期的。
+     */
+    private fun CoroutineScope.discoveryStillOwnsUi(): Boolean =
+        isActive && installJob?.isActive != true
 
     /**
      * 开始一次安装。

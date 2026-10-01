@@ -34,9 +34,28 @@ object SymbolAlignment {
         val unresolved: List<String>,
         val baseKeyCount: Int,
         val resolvedKeyCount: Int,
+        /**
+         * 被**豁免**的可选键（[SymbolCatalog] 里标了 `required = false` 的那些）。
+         *
+         * 这些键不参与阻断，但**必须单独列出来**：豁免不等于无事发生 ——
+         * 它们对应的功能在本次产物里就是不可用的。悄悄放过它们，
+         * 就从"硬拦一切"变成了"悄悄少改几个"，那是本工程最不想要的两种极端之一。
+         */
+        val skippedOptional: List<String> = emptyList(),
     ) {
-        /** 两边完全对齐，可以安全打补丁。 */
+        /** 两边完全对齐（可选键除外），可以安全打补丁。 */
         val aligned: Boolean get() = unpatchable.isEmpty() && unresolved.isEmpty()
+
+        /** 豁免说明。没有豁免就返回空 —— 调用方直接 `forEach { log(it) }` 即可。 */
+        fun optionalNotice(): List<String> = if (skippedOptional.isEmpty()) {
+            emptyList()
+        } else {
+            listOf(
+                "[!] 有 ${skippedOptional.size} 个**可选**键没有参与改写（不阻断打包）：" +
+                    skippedOptional.joinToString(", "),
+                "    它们对应的功能在本次产物里**不可用**；必需键已全部对齐。",
+            )
+        }
 
         /** 给用户看的阻断说明（逐行）。 */
         fun blockMessage(baselineId: String, baselineKernel: String): List<String> = buildList {
@@ -61,11 +80,41 @@ object SymbolAlignment {
     /**
      * @param baseKeys 基线 `.so` 里烤着的符号键。
      * @param resolvedKeys 本次从内核镜像解析出的符号键。
+     * @param optionalKeys **可选键**（[SymbolCatalog] 里 `required = false` 的那些）。
+     *
+     * ### 为什么可选键必须豁免
+     *
+     * 这些键缺席是**设计如此**，不是缺陷：
+     * - `SYS_EXIT_TP` / `RVH_COMMIT_CREDS_TP` 是 `neutralize_vr()`（全局关掉 vr.ko 探针，
+     *   即 Option B）用的。6.1 / 6.12 两族的自编基线**故意没有编进去** ——
+     *   那两个 tracepoint 偏移在两族上**没有可核实的来源**，按"不许猜"的规矩留空
+     *   （见 `载荷构建/README.md` §7）。它们只带 per-task 抹标记（Option A）。
+     * - `SLIDE_NFULNL_LOG_PACKET` 上游标注就是"需按机型核对"。
+     *
+     * 原来的实现只做纯集合差，把这三个键当成硬要求 —— 结果这两份基线
+     * **永远过不了闸门**，界面上表现为"6.1 / 6.12 没有可用的基线"。
+     * 关键是 `SymbolSpec.required` 这个字段**声明了却全仓库无人读取**，
+     * 于是"可选"只停留在注释里。
+     *
+     * ⚠️ 豁免**只针对被显式标成可选**的键。必需键一个都不能少 ——
+     * 那才是这道闸门存在的理由。
      */
-    fun check(baseKeys: Set<String>, resolvedKeys: Set<String>): Report = Report(
-        unpatchable = (resolvedKeys - baseKeys).sorted(),
-        unresolved = (baseKeys - resolvedKeys).sorted(),
-        baseKeyCount = baseKeys.size,
-        resolvedKeyCount = resolvedKeys.size,
-    )
+    fun check(
+        baseKeys: Set<String>,
+        resolvedKeys: Set<String>,
+        optionalKeys: Set<String> = emptySet(),
+    ): Report {
+        val rawUnpatchable = (resolvedKeys - baseKeys).sorted()
+        val rawUnresolved = (baseKeys - resolvedKeys).sorted()
+        return Report(
+            unpatchable = rawUnpatchable.filterNot { it in optionalKeys },
+            unresolved = rawUnresolved.filterNot { it in optionalKeys },
+            baseKeyCount = baseKeys.size,
+            resolvedKeyCount = resolvedKeys.size,
+            skippedOptional = (rawUnpatchable + rawUnresolved)
+                .filter { it in optionalKeys }
+                .distinct()
+                .sorted(),
+        )
+    }
 }

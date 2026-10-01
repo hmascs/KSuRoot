@@ -36,8 +36,23 @@ object GhostLockOffsetsIo {
      *   统一转数值会掉精度或误判。
      */
     fun read(text: String): OffsetsDocument {
-        val root = MiniJsonCodec.parse(text)
-        require(root is MiniJson.Obj) { "offsets.json 顶层必须是对象" }
+        val parsed = MiniJsonCodec.parse(text)
+        // 顶层既可能是对象，也可能是**单元素数组** —— 后者是上游 ghostlock-app 的
+        // 实际导出格式（实测：issue #2 用户附的 6.6.89.offsets.json 就是 `[{…}]`）。
+        // 原来这里只收对象，于是用户按上游工具导出的文件会被直接拒掉，
+        // 而报错文案还写着"顶层必须是对象"，看起来像是用户做错了 —— 不是。
+        // 数组里出现多个对象时**不猜**：那份文件不是本格式，如实报错。
+        val root: MiniJson.Obj = when (parsed) {
+            is MiniJson.Obj -> parsed
+            is MiniJson.Arr -> {
+                val objs = parsed.items.filterIsInstance<MiniJson.Obj>()
+                require(objs.size == 1) {
+                    "offsets.json 顶层是数组，但里面有 ${objs.size} 个对象（期望恰好 1 个）"
+                }
+                objs.first()
+            }
+            else -> error("offsets.json 顶层必须是对象（或含一个对象的数组）")
+        }
         val scalars = LinkedHashMap<String, String>()
         val symbols = LinkedHashMap<String, Long>()
         val structs = LinkedHashMap<String, Long>()

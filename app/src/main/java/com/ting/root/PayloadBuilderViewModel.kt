@@ -483,8 +483,25 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
                     val msg = "还没有为「${scheme.baselineScheme.label} × 内核 ${selected.series}」" +
                         "登记偏移产物，本次不打包（不会用别的系列顶替）"
                     publish("[X] $msg")
-                    publish("    主线需要覆盖 6.6 与 6.12；缺的那一档要拿到**为该内核编译的载荷 .so**")
-                    publish("    或上游对应机型的 target.h 才能登记，不能用别的内核的数值凑。")
+                    // 区分两种"没有"，因为它们要的下一步动作完全不同：
+                    //  · 随包**有**这一族的基线库 → 缺的是「登记」（符号值要逐项核实），不是库；
+                    //  · 连库都没有 → 缺的是产物本身，得先拿到为该内核编译的 .so 或 target.h。
+                    // 原来两种情况共用一句"还没有登记偏移产物"，用户会去翻仓库找 .so，
+                    // 而其实 .so 就在包里。
+                    val familyLib = BaselineRegistry.BaselineLibraries
+                        .familyOf(selected.release)
+                        ?.let { BaselineRegistry.BaselineLibraries.forFamily(it) }
+                        .orEmpty()
+                    if (familyLib.isNotEmpty()) {
+                        publish("    注意：随包**有** ${selected.series} 族的基线库 $familyLib，")
+                        publish("    但它**没有登记编译期符号值** —— 缺的是登记，不是库。")
+                        publish("    符号旧值必须从该 .so 里逐项核实后才能登记；拿没核实过的值去改字节，")
+                        publish("    产物会**静默**保留旧值（既不报错也不 manifest 成失败），装机后才炸。")
+                        publish("    所以这里如实报缺，不替你猜一组数值。")
+                    } else {
+                        publish("    主线需要覆盖 6.6 与 6.12；缺的那一档要拿到**为该内核编译的载荷 .so**")
+                        publish("    或上游对应机型的 target.h 才能登记，不能用别的内核的数值凑。")
+                    }
                     mutableState.value = mutableState.value.copy(
                         phase = PayloadBuildPhase.Failed,
                         error = msg,

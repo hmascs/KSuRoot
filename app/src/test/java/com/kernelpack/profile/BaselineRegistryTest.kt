@@ -105,7 +105,10 @@ class BaselineRegistryTest {
     // ---------------------------------------------------------------- 来源标注
 
     @Test
-    fun `两条内置基线的偏移组都是已验证档`() {
+    fun `手写登记档的偏移组都是已验证档`() {
+        // [2026-10] 原来叫「两条内置基线」—— 那时 entries 确实只有 PD2520 与 IONSTACK_P10。
+        // 现在多了 6.1 / 6.12 两份自编族基线的登记档，断言本身不变（它们同样是
+        // PAYLOAD_BAKED + 同一 anchor → VERIFIED），只是名字里的数字会误导人。
         for (e in BaselineRegistry.entries) {
             assertEquals(
                 "${e.profile.id} 的偏移组应为 VERIFIED（都是内置载荷的编译期常量）",
