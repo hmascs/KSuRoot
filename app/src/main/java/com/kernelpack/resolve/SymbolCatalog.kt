@@ -64,7 +64,17 @@ data class SymbolSpec(
 object SymbolCatalog {
 
     val NEO11_OFFSETS: List<SymbolSpec> = listOf(
-        SymbolSpec("ASHMEM_MISC_FOPS", listOf(Strategy.SymbolPlus(listOf("ashmem_misc"), 0x10, Kind.DATA)), note = "miscdevice.fops 槽"),
+        SymbolSpec(
+            "ASHMEM_MISC_FOPS",
+            // 同一个东西，两个时期的符号名：
+            //   厂商 6.1（如 OPPO 6.1.75）= `ashmem_misc`（单数）
+            //   上游 GKI 6.1（如 Google 6.1.145）= `ashmem_miscs`（复数）
+            // 两者都是 `struct miscdevice`，`fops` 槽都在 +0x10。
+            // 已在 6.1.145 的 Image 里读初值实证：`ashmem_miscs+0x10 == &ashmem_fops`，
+            // 且 `ashmem_fops+0x50 == ashmem_ioctl`（与 ASHMEM_COMPAT_IOCTL 的策略互证）。
+            listOf(Strategy.SymbolPlus(listOf("ashmem_misc", "ashmem_miscs"), 0x10, Kind.DATA)),
+            note = "miscdevice.fops 槽；厂商版叫 ashmem_misc，上游 GKI 叫 ashmem_miscs",
+        ),
         SymbolSpec("ASHMEM_FOPS", listOf(Strategy.Symbol(listOf("ashmem_fops"), Kind.DATA))),
         SymbolSpec("ASHMEM_IOCTL", listOf(Strategy.Symbol(listOf("ashmem_ioctl"), Kind.TEXT))),
         SymbolSpec(
@@ -81,7 +91,25 @@ object SymbolCatalog {
 
         SymbolSpec("CONFIGFS_READ_ITER", listOf(Strategy.Symbol(listOf("configfs_read_iter"), Kind.TEXT))),
         SymbolSpec("CONFIGFS_BIN_WRITE_ITER", listOf(Strategy.Symbol(listOf("configfs_bin_write_iter"), Kind.TEXT))),
-        SymbolSpec("COPY_SPLICE_READ", listOf(Strategy.Symbol(listOf("copy_splice_read"), Kind.TEXT))),
+        // [2026-10] 加 `generic_file_splice_read` 回退 —— 实测出来的兼容性修复。
+        //
+        // `copy_splice_read` 是 Linux **6.5** 才引入的。Pixel 的 6.1 GKI 把它 **backport 了**，
+        // 所以上游 44/44 份 target.h 都定义它；但**OPPO 的 6.1 没有** ——
+        // 用 OPPO Find X7 Ultra 的 boot.img 实测：全部策略未命中 → 符号对不齐闸门拦住
+        // → 通用方案在 6.1 上**直接构建不出来**。这就是"兼容性太低"的一个具体来源。
+        //
+        // 这个键的用途是把地址写进**伪造的 `file_operations` 表的 splice_read 槽**
+        // （见 `bsrc/exploit/src/fops.c:232`）。该槽只要一个**签名兼容**的函数即可，
+        // `generic_file_splice_read` 与之完全一致，是合法替代。
+        //
+        // ⚠️ 为什么是回退而不是把 required 改成 false：豁免会让这一槽**静默保留基线的旧地址**
+        // （那是另一个内核的地址，写进去很可能直接崩）—— 比构建失败更糟。
+        // 回退拿到的是**本内核的真实地址**，这才是真正的兼容性提升。
+        SymbolSpec(
+            "COPY_SPLICE_READ",
+            listOf(Strategy.Symbol(listOf("copy_splice_read", "generic_file_splice_read"), Kind.TEXT)),
+            note = "6.5 才引入；6.1 部分厂商未 backport，回退到 generic_file_splice_read",
+        ),
         SymbolSpec("NOOP_LLSEEK", listOf(Strategy.Symbol(listOf("noop_llseek"), Kind.TEXT))),
 
         SymbolSpec("INIT_TASK", listOf(Strategy.Symbol(listOf("init_task"), Kind.DATA))),

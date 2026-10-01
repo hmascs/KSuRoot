@@ -279,9 +279,22 @@ object KernelPack {
             optionalKeys = SymbolCatalog.OPTIONAL_KEYS,
         )
         if (!align.aligned) {
-            align.blockMessage(baseline.id, baseline.kernelVersion).forEach { log(it) }
+            val msg = align.blockMessage(baseline.id, baseline.kernelVersion)
+            msg.forEach { log(it) }
             warnings.add("[X] 符号对不齐，已停止打包（详见日志）")
-            return PackResult(analysis, profile, null, null, baseline, header, json, warnings)
+            // [2026-10 修] 这里原来**不带 gate**，于是 PackResult.gate 取默认的 Proceed，
+            // 而 packedLibrary 是 null —— 结果是 `blocked = false` 且产物 0 B。
+            // UI 靠 `blocked` 决定要不要弹阻断框（见 PackResult.blocked 的注释），
+            // 所以它会显示"构建完成"却什么都不给，用户只能盯着 0 B 猜。
+            // 既然这里已经判定"停止打包"，就必须如实标成 Blocked。
+            return PackResult(
+                analysis, profile, null, null, baseline, header, json, warnings,
+                gate = GateDecision.Blocked(
+                    title = "符号对不齐，已停止打包",
+                    detail = msg,
+                    remedy = "换一档与本机内核符号已对齐的基线档位；或先在真机上核对本机符号名（见日志）。",
+                ),
+            )
         }
         // 豁免必须**说出来**：可选键没参与改写，意味着它们对应的功能在本次产物里不可用。
         // 不声不响地少改几个，是"硬拦一切"之外的另一种坏 —— 同样是让用户误判产物能力。

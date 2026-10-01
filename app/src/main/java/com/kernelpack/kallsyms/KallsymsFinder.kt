@@ -323,8 +323,8 @@ class KallsymsFinder(private val img: ByteArray, private val opts: KallsymsOptio
         log("[+] Found kallsyms_token_index at file offset 0x${java.lang.Long.toHexString(tokenIndexOffset.toLong())}")
     }
 
-    private fun findInRange(needle: ByteArray, from: Int, to: Int): Int {
-        val n = needle.size
+
+    private fun findInRange(needle: ByteArray, from: Int, to: Int): Int {        val n = needle.size
         if (n == 0 || from < 0) return -1
         val end = minOf(to, img.size)
         if (from + n > end) return -1
@@ -504,10 +504,10 @@ class KallsymsFinder(private val img: ByteArray, private val opts: KallsymsOptio
                 // Linux 6.4+：地址/偏移表排在 kallsyms_token_index 之后
                 val alignSize = if (is64Bits && !pcRelative) 8 else 4
                 position = tokenIndexEndOffset
-                position += (-position) % alignSize
+                position = alignUp(position, alignSize)
                 if (hasBaseRelativeTry) {
                     position += numSymbols * offsetByteSize
-                    position += (-position) % alignSize
+                    position = alignUp(position, alignSize)
                     position += addressByteSize
                 } else if (pcRelative) {
                     position += numSymbols * offsetByteSize
@@ -619,6 +619,22 @@ class KallsymsFinder(private val img: ByteArray, private val opts: KallsymsOptio
             log("[+] Null addresses overall: ${nullItems * 100 / kernelAddresses.size}%")
             if (nullItems.toDouble() / kernelAddresses.size >= 0.2 && canSkip) {
                 lastError = "零地址占比过高"; continue
+            }
+
+            // 绝对地址表（`kallsyms_addresses`）**没有单调性可依赖**，必须显式查
+            // "这些数看起来是不是内核地址"。不加这一步，一段 ASCII 文本会被
+            // 当成地址表照单全收（实测：0x151c800 处 106207 项里 0 项是内核地址），
+            // 基址随之取到文本，整档静默失败。
+            if (!localHasBaseRelative && !localPcRelative) {
+                var inKernel = 0
+                for (a in kernelAddresses) {
+                    if (a.toULong() >= 0xffff000000000000uL) inKernel++
+                }
+                val pct = inKernel.toDouble() / kernelAddresses.size
+                if (pct < 0.5 && canSkip) {
+                    lastError = "绝对地址表里只有 ${(pct * 100).toInt()}% 落在内核地址空间"
+                    continue
+                }
             }
 
             hasBaseRelative = localHasBaseRelative
@@ -930,4 +946,25 @@ class KallsymsFinder(private val img: ByteArray, private val opts: KallsymsOptio
             return count
         }
     }
+}
+
+/**
+ * 向上对齐到 [align] 的整数倍。
+ *
+ * **必须**用这个写法，不能写 `x += (-x) % align`：
+ * Kotlin/Java 的 `%` 对负数返回**负值**（`(-6) % 8 == -6`），
+ * 那样"向上对齐"会变成"往回退"，位置整整偏掉一个对齐单位。
+ *
+ * 后果是一条静默的连锁反应：`kallsyms_offsets` 读成垃圾 →
+ * 单调性检查失败 → 回退到**没有校验**的 `kallsyms_addresses` 分支 →
+ * 基址取到文本数据（实测 0x64657261656c6000，其实是 ASCII）→
+ * 该内核上 0/28 个符号解析成功。
+ *
+ * 这条路径**只有 Linux 6.4+ 才走**，所以 6.1 一直正常，
+ * 而 6.4 / 6.6 / 6.12 的内核会整档失败。
+ */
+internal fun alignUp(x: Int, align: Int): Int {
+    if (align <= 1) return x
+    val r = x % align
+    return if (r == 0) x else x + (align - r)
 }
