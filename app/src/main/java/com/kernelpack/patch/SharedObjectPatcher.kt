@@ -28,6 +28,14 @@ data class SpecOutcome(
     val key: String,
     val oldValue: Long,
     val newValue: Long,
+    /**
+     * 这条规格是「偏移」还是「基址」。
+     *
+     * 为什么要带出来：调用方要能回答「**偏移**一条都没改成」这个具体问题。
+     * 基址那条（`KIMAGE_TEXT_BASE`）即使全部偏移都没匹配上也常常会变，
+     * 于是只看 `patchedKeys.size > 0` 会被它蒙混过去 —— 产物看着改过了，实际一条偏移都没动。
+     */
+    val kind: SpecKind = SpecKind.IMAGE_OFFSET,
     /** 代码里找到的构造点数量。 */
     val sitesFound: Int,
     val sitesPatched: Int,
@@ -108,6 +116,12 @@ class SharedObjectPatcher(
     var patchDataLiterals32: Boolean = false
 
     fun patch(specs: List<PatchSpec>): PatchReport {
+
+        // 键 → 规格种类：后面每个 SpecOutcome 都要带上它，
+
+        // 调用方才能区分「基址变了」与「偏移真的改到了」。
+
+        val kindByKey = specs.associate { it.key to it.kind }
         val elf = Elf64File(bytes)
         val baseSpec = specs.firstOrNull { it.kind == SpecKind.BASE }
         val oldBase = baseSpec?.oldValue ?: 0L
@@ -215,6 +229,7 @@ class SharedObjectPatcher(
                     key = key,
                     oldValue = pairs[0].from,
                     newValue = pairs[0].to,
+                    kind = kindByKey[key] ?: SpecKind.IMAGE_OFFSET,
                     sitesFound = found,
                     sitesPatched = patched,
                     sitesFailed = failed,

@@ -718,7 +718,12 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
 
     private fun shizukuStage(source: File, target: String, mode: String): File {
         val staged = File(target)
-        if (staged.exists() && staged.length() == source.length()) return staged
+        // 旧判据只有「长度相同就复用」。自定义载荷换一份、长度又恰好一样时，
+        // /data/local/tmp 里留下的还是上一份 —— 同一个坑，在 Shizuku 路径上又踩一次。
+        // 这里改成比内容：长度相同还不够，得逐字节一致才复用。
+        if (staged.exists() && staged.length() == source.length() && sameContent(staged, source)) {
+            return staged
+        }
         try {
             ShizukuController.writeFile(target, mode, source.inputStream())
         } catch (error: Throwable) {
@@ -729,6 +734,24 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         }
         return staged
     }
+
+    /** 两个文件是否逐字节相同（长度相同才会被调用）。 */
+    private fun sameContent(a: File, b: File): Boolean = runCatching {
+        a.inputStream().use { ia ->
+            b.inputStream().use { ib ->
+                val ba = ByteArray(64 * 1024)
+                val bb = ByteArray(64 * 1024)
+                while (true) {
+                    val na = ia.read(ba)
+                    val nb = ib.read(bb)
+                    if (na != nb) return@runCatching false
+                    if (na < 0) return@runCatching true
+                    if (!ba.copyOf(na).contentEquals(bb.copyOf(nb))) return@runCatching false
+                }
+                @Suppress("UNREACHABLE_CODE") true
+            }
+        }
+    }.getOrDefault(false)
 
     private fun shizukuEnvironment(
         cachedOffset: String?,

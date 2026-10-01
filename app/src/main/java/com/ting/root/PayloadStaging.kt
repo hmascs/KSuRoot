@@ -65,7 +65,14 @@ internal object PayloadStaging {
             return source
         }
         val directory = File(context.filesDir, STAGED_DIR).apply { mkdirs() }
-        val staged = File(directory, source.name)
+        // ⚠️ 缓存键必须是**内容**，不能是「文件名 + 长度」。
+        //
+        // 踩过的坑：自定义载荷在私有目录里固定叫 `payload.so`，于是每一份都落到
+        // 同一个 `files/staged/payload.so`。旧判据是「同名且同长度就复用」——
+        // 用户换了一份**恰好同样字节数**的载荷时，这里会原样复用上一份，
+        // 而它已经 chmod 过、`satisfied()` 直接通过，于是**静默加载了旧载荷**。
+        // 名字里带上内容哈希之后，不同内容必然不同文件。
+        val staged = File(directory, cacheKey(source, mode))
         runCatching {
             if (!staged.exists() || staged.length() != source.length()) {
                 source.inputStream().use { input ->
@@ -75,6 +82,28 @@ internal object PayloadStaging {
             Os.chmod(staged.absolutePath, mode)
         }
         return if (satisfied(staged)) staged else source
+    }
+
+    /**
+     * 缓存键 = 内容哈希前缀 + 权限位 + 原名。
+     *
+     * 带上 mode 是因为同一个源文件可能既要可读副本又要可执行副本
+     * （载荷与执行助手）；带上原名只为日志里好认。
+     */
+    private fun cacheKey(source: File, mode: Int): String {
+        val digest = runCatching {
+            java.security.MessageDigest.getInstance("SHA-256").apply {
+                source.inputStream().use { input ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        update(buffer, 0, count)
+                    }
+                }
+            }.digest().joinToString("") { "%02x".format(it) }.take(16)
+        }.getOrNull() ?: "nohash${source.length()}"
+        return "$digest-${Integer.toHexString(mode)}-${source.name}"
     }
 
     private const val STAGED_DIR = "staged"

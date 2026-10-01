@@ -503,6 +503,32 @@ object BaselineRegistry {
             GhostLockKernelOffsets.StructFamily.F6_6 -> "" // 交给调用方用方案原有的库
         }
 
+        /**
+         * ★ 自编族基线 → **它自己的档位 id**。
+         *
+         * 为什么必须有这张映射：打补丁靠「拿档位里的旧值去 .so 里找字面量」，
+         * 所以**旧值必须来自编译这份 .so 时用的那份 target.h**。
+         * 而档位是**三级路由**按内核串选的，跟"选哪份库"（按结构体族）是两条独立的路 ——
+         * 它们完全可能选岔：
+         *
+         * ```
+         *   X100 Pro 6.1.145 → 路由按完整内核串命中上游档 up-6-1-145-…
+         *                     （旧值来自 GhostLock 的 offsets.h）
+         *   结构体族 F6_1    → 库选 libbaseline_6_1.so
+         *                     （旧值来自 载荷构建/targets/baseline-6.1-tokay/target.h）
+         * ```
+         *
+         * 两套旧值毫无交集 → 26 项一处都匹配不上，产物等于原样拷贝。
+         * 上游 `up-*` 档只适用于**上游那份 .so**，配自编库时必须换回本表。
+         *
+         * @return 该库对应的档位 id；不是自编族基线时返回 null（保持原行为）。
+         */
+        fun profileIdForLibrary(libraryName: String): String? = when (libraryName) {
+            SIX_ONE -> BASELINE_6_1.id
+            SIX_TWELVE -> BASELINE_6_12.id
+            else -> null
+        }
+
         /** 从内核串推出结构体族。**认不出返回 null，不猜**。 */
         fun familyOf(kernelRelease: String?): GhostLockKernelOffsets.StructFamily? {
             val v = kernelRelease?.substringBefore('-') ?: return null

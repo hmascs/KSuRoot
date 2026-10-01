@@ -129,6 +129,16 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.key
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalUriHandler
@@ -387,6 +397,15 @@ private fun RootApp(
     var patchRisk by remember { mutableStateOf(PatchRisk.NONE) }
     var payloadSource by remember { mutableStateOf(AppPreferences.payloadSource(context)) }
     var customPayload by remember { mutableStateOf(CustomPayloadStore.current(context)) }
+    // 库房条目与当前生效 id。刷新统一走 refreshLibrary()，
+    // 避免"导入之后列表没跟着变"这种半更新状态。
+    var libraryEntries by remember { mutableStateOf(CustomPayloadStore.list(context)) }
+    var activeLibraryId by remember { mutableStateOf(CustomPayloadStore.activeId(context)) }
+    fun refreshLibrary() {
+        customPayload = CustomPayloadStore.current(context)
+        libraryEntries = CustomPayloadStore.list(context)
+        activeLibraryId = CustomPayloadStore.activeId(context)
+    }
     // 用户在机型清单里手动点选的载荷（`jniLibs` 文件名）。`null` = 不指定，按设备自动匹配。
     // 只活在这一次界面会话里，不落盘 —— 它是"这次就用这份"的一次性决定，
     // 存起来反而会在换机/换库之后变成一颗埋着的雷。
@@ -590,7 +609,7 @@ private fun RootApp(
             val info = CustomPayloadStore.import(context, uri, queryDisplayName(context, uri))
             AppPreferences.setPayloadSource(context, PayloadSource.Custom)
             payloadSource = PayloadSource.Custom
-            customPayload = info
+            refreshLibrary()
             installViewModel.refresh()
             Toast.makeText(
                 context,
@@ -702,9 +721,42 @@ private fun RootApp(
                             onImportPayload = {
                                 importPayloadLauncher.launch(arrayOf("*/*"))
                             },
+                            libraryEntries = libraryEntries,
+                            activeLibraryId = activeLibraryId,
+                            onActivateLibrary = { id ->
+                                val info = CustomPayloadStore.activate(context, id)
+                                if (info == null) {
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.custom_import_failed),
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                } else {
+                                    AppPreferences.setPayloadSource(context, PayloadSource.Custom)
+                                    payloadSource = PayloadSource.Custom
+                                    refreshLibrary()
+                                    installViewModel.refresh()
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.custom_import_success, info.displayName),
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
+                            },
+                            onDeleteLibrary = { entry ->
+                                CustomPayloadStore.remove(context, entry.id)
+                                refreshLibrary()
+                                installViewModel.refresh()
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.library_deleted, entry.displayName),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            },
+
                             onRemovePayload = {
                                 CustomPayloadStore.clear(context)
-                                customPayload = null
+                                refreshLibrary()
                                 if (payloadSource == PayloadSource.Custom) {
                                     AppPreferences.setPayloadSource(context, PayloadSource.Bundled)
                                     payloadSource = PayloadSource.Bundled
@@ -749,7 +801,7 @@ private fun RootApp(
                             onApplyAsPayload = {
                                 builderViewModel.saveAsPayload { info ->
                                     payloadSource = PayloadSource.Custom
-                                    customPayload = info
+                                    refreshLibrary()
                                     installViewModel.refresh()
                                     Toast.makeText(
                                         context,
@@ -1075,6 +1127,10 @@ private fun OverviewPage(
     manualPayload: String?,
     onPayloadSourceChanged: (PayloadSource) -> Unit,
     onImportPayload: () -> Unit,
+    libraryEntries: List<CustomPayloadInfo>,
+    activeLibraryId: String?,
+    onActivateLibrary: (String) -> Unit,
+    onDeleteLibrary: (CustomPayloadInfo) -> Unit,
     onRemovePayload: () -> Unit,
     onManualPayloadChanged: (String?) -> Unit,
     onInstall: () -> Unit,
@@ -1160,6 +1216,10 @@ private fun OverviewPage(
             Box(modifier = Modifier.staggeredEntry(3)) {
                 CustomPayloadCard(
                     payloadSource = payloadSource,
+                    libraryEntries = libraryEntries,
+                    activeLibraryId = activeLibraryId,
+                    onActivateLibrary = onActivateLibrary,
+                    onDeleteLibrary = onDeleteLibrary,
                     customPayload = customPayload,
                     enabled = !installState.busy,
                     manualPayload = manualPayload,
@@ -1287,15 +1347,134 @@ private fun RootHandoffCard(
     }
 }
 
+/** 滑动删除的起手阈值。比系统的 touchSlop 小得多 —— 见 [SwipeToDeleteRow]。 */
+private val SwipeDeleteStartSlop = 4.dp
+
+/** 滑过这么远松手才真的删。 */
+private val SwipeDeleteTrigger = 96.dp
+
+/** 行与删除底色的**同一个**圆角 —— 两层形状必须一样，滑开时才对得齐。 */
+private val SwipeRowShape = RoundedCornerShape(14.dp)
+
+/**
+ * 左右滑动删除一行。
+ *
+ * ### 为什么不用 `detectHorizontalDragGestures` / SwipeToDismiss
+ * 本工程在底栏滑块上实测过：系统 `viewConfiguration.touchSlop` 在本机约 **75px（≈19dp）**，
+ * 且它的回调只给**越过阈值之后**的增量，那段距离会被永久丢掉 ——
+ * 表现就是"开头要空拖一小段才动"。所以沿用同一套写法：
+ * **自定义 4dp 阈值，位移一律从按下点起算**，越过阈值那一刻没有跳变。
+ *
+ * ### 方向：左右都认
+ * 往哪边滑过阈值都触发。用户说的是"向右滑"，但单向删除在全面屏上容易
+ * 和系统返回手势打架，双向更稳，也不改变用户预期（滑开就是删除）。
+ *
+ * ### 阈值之内不消费事件
+ * 没越过阈值就一个事件都不吃，行内的「使用」按钮照常收到点击 ——
+ * 否则会出现"想点按钮结果把它删了"。
+ */
+@Composable
+private fun SwipeToDeleteRow(
+    enabled: Boolean,
+    onDelete: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val density = LocalDensity.current
+    val slopPx = with(density) { SwipeDeleteStartSlop.toPx() }
+    val triggerPx = with(density) { SwipeDeleteTrigger.toPx() }
+    var offsetX by remember { mutableStateOf(0f) }
+    // ★ 手势块是 remember 的，只在 key 变化时重启；`onDelete` 每次组合都是**新闭包**，
+    // 直接捕获会让它一直握着第一次那一个（指向已经删掉的那条）。
+    // 用 rememberUpdatedState 让手势读到的永远是当前这一份 —— 这是上面那个
+    // "删掉一条之后剩下的都删不动"的另一半修法（那一半是 key(entry.id)）。
+    val currentOnDelete by rememberUpdatedState(onDelete)
+    val shown by animateFloatAsState(offsetX, label = "swipeDelete")
+    val danger = MiuixTheme.colorScheme.error
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        // 底层：滑开之后露出来的删除底色。跟着位移一起长出来，
+        // 让用户在中途就能看出"松手会删"。
+        if (shown != 0f) {
+            val progress = (abs(shown) / triggerPx).coerceIn(0f, 1f)
+            // 删除底色与被删的那一行**同形同高**（同一套圆角、同一圈内边距），
+            // 颜色统一取主题的 error，而不是硬编码红 —— 换主题时它跟着走。
+            Row(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(SwipeRowShape)
+                    .background(danger.copy(alpha = 0.12f + 0.88f * progress))
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = if (shown > 0f) Arrangement.Start else Arrangement.End,
+            ) {
+                Icon(
+                    Icons.Rounded.Delete,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    stringResource(R.string.library_swipe_delete),
+                    color = Color.White,
+                    style = MiuixTheme.textStyles.body2,
+                )
+            }
+        }
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(shown.roundToInt(), 0) }
+                .pointerInput(enabled, triggerPx) {
+                    if (!enabled) return@pointerInput
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val pointerId = down.id
+                        val startX = down.position.x
+                        var started = false
+                        var dx = 0f
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == pointerId }
+                            if (change == null || !change.pressed) {
+                                // 松手：越过阈值就删，否则弹回去。
+                                if (started) {
+                                    if (abs(dx) >= triggerPx) currentOnDelete()
+                                    offsetX = 0f
+                                }
+                                break
+                            }
+                            if (change.isConsumed) {
+                                offsetX = 0f
+                                break
+                            }
+                            dx = change.position.x - startX
+                            if (!started) {
+                                if (abs(dx) < slopPx) continue
+                                started = true
+                            }
+                            // 越过阈值就吃掉事件，避免同一次滑动又被父层滚动/点击接管
+                            change.consume()
+                            offsetX = dx
+                        }
+                    }
+                },
+        ) { content() }
+    }
+}
+
 @Composable
 private fun CustomPayloadCard(
     payloadSource: PayloadSource,
     customPayload: CustomPayloadInfo?,
+    libraryEntries: List<CustomPayloadInfo>,
+    activeLibraryId: String?,
     enabled: Boolean,
     manualPayload: String?,
     onSourceChanged: (PayloadSource) -> Unit,
     onImport: () -> Unit,
     onRemove: () -> Unit,
+    onActivateLibrary: (String) -> Unit,
+    onDeleteLibrary: (CustomPayloadInfo) -> Unit,
     onManualPayloadChanged: (String?) -> Unit,
 ) {
     val context = LocalContext.current
@@ -1395,6 +1574,103 @@ private fun CustomPayloadCard(
                     }
                 }
             }
+            // ── 库房列表 ────────────────────────────────────────────────
+            // 存放位置统一在 Download/动态库/<机型>/ 下，这里按机型分组列出来。
+            // 为什么要有这一块：以前只能存**一份**自定义载荷（私有目录里固定叫 payload.so），
+            // 换一份就把上一份覆盖掉；而且文件全在应用私有目录，用户在文件管理器里看不到。
+            if (libraryEntries.isEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    stringResource(R.string.library_empty),
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+            }
+            if (libraryEntries.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    stringResource(R.string.library_title),
+                    style = MiuixTheme.textStyles.title4,
+                )
+                Text(
+                    stringResource(R.string.library_hint, CustomPayloadStore.LIBRARY_DIR),
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                )
+                libraryEntries.groupBy { it.device }.forEach { (device, items) ->
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        stringResource(R.string.library_group_format, device, items.size),
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.primary,
+                    )
+                    items.forEach { entry ->
+                        // ★ key(entry.id) 不能省。
+                        //
+                        // 原来这里没有 key：Compose 的 forEach **没有稳定身份**，只能按**位置**复用。
+                        // 删掉第 1 条之后，后面的行整体上移一格，而 SwipeToDeleteRow 里的
+                        // `pointerInput` 是有 remember 的 —— 它不会因为"换了一条数据"而重启，
+                        // 于是它继续调用**第一次组合时**捕获的那个 onDelete，而那一条已经被删了。
+                        // 表现就是：删掉一条之后，剩下的行再滑都删不动，**最后一条永远删不掉**。
+                        key(entry.id) {
+                        // 滑动删除：左右**任一方向**滑过阈值即删除。
+                        // 手势沿用本工程在底栏滑块上验证过的那套写法（自定义 4dp 阈值、
+                        // 位移从按下点起算）—— 不用 detectHorizontalDragGestures 的原因
+                        // 见 GlassNavBarContent 里的实测记录（本机系统 touchSlop ≈75px）。
+                        SwipeToDeleteRow(
+                            enabled = enabled,
+                            onDelete = { onDeleteLibrary(entry) },
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(SwipeRowShape)
+                                    .background(MiuixTheme.colorScheme.surface)
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        stringResource(
+                                            R.string.library_entry_format,
+                                            entry.displayName,
+                                            android.text.format.Formatter.formatFileSize(context, entry.size),
+                                        ),
+                                        style = MiuixTheme.textStyles.body2,
+                                        maxLines = 1,
+                                    )
+                                    Text(
+                                        entry.publicPath,
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                        maxLines = 1,
+                                    )
+                                }
+                                if (entry.id == activeLibraryId) {
+                                    Text(
+                                        stringResource(R.string.library_active),
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.primary,
+                                    )
+                                } else {
+                                    TextButton(
+                                        text = stringResource(R.string.library_use),
+                                        onClick = { onActivateLibrary(entry.id) },
+                                        enabled = enabled,
+                                    )
+                                }
+                            }
+                        }
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                stringResource(R.string.library_scope_note),
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
             if (customPayload != null) {
                 Text(
                     stringResource(R.string.custom_sha_format, customPayload.sha256.take(16) + "…"),

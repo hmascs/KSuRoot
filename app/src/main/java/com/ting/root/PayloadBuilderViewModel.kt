@@ -522,6 +522,29 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
                     ),
                 )
                 val baseSha = withContext(Dispatchers.Default) { sha256Hex(baseLibrary) }
+
+                // ── ★ 库与档位必须同源 ──────────────────────────────────────
+                //
+                // 「选哪份库」是按**结构体族**走的，「选哪一档」是按**三级路由**（内核串）走的。
+                // 两条路独立，于是会选岔：X100 Pro 6.1.145 上路由命中了上游档
+                // `up-6-1-145-…`（旧值来自 GhostLock 的 offsets.h），而库是自编的
+                // `libbaseline_6_1.so`（旧值来自 baseline-6.1-tokay/target.h）。
+                // 两套旧值毫无交集 → 26 项**一处都没匹配上**，产物等于原样拷贝。
+                //
+                // 所以这里以**库**为准：自编族基线必须配它自己的那一档。
+                // 上游 `up-*` 档只适用于上游那份 .so。
+                val loadedLibraryName = lastBaseLibraryName ?: scheme.library
+                val ownProfileId = BaselineRegistry.BaselineLibraries
+                    .profileIdForLibrary(loadedLibraryName)
+                val effectiveProfileId = if (ownProfileId != null && ownProfileId != profileId) {
+                    publish("[i] 基础库 $loadedLibraryName 是**自编族基线**，旧值就烤在它里面。")
+                    publish("    档位从 $profileId 改用与它同源的 $ownProfileId ——")
+                    publish("    否则档位里的旧值在这份 .so 里一个都找不到，产物会等于原样拷贝。")
+                    ownProfileId
+                } else {
+                    profileId
+                }
+
                 mutableState.value = mutableState.value.copy(
                     scheme = scheme,
                     baseLibraryName = lastBaseLibraryName ?: scheme.library,
@@ -598,7 +621,7 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
                             //
                             // [BaselineRegistry.byId] 搜的是 allEntries（手写 + 上游 + 蓝厂派生），
                             // 与三级路由用的是同一张表 —— 路由指向哪一档，这里就取到哪一档。
-                            baseline = BaselineRegistry.byId(profileId)?.profile,
+                            baseline = BaselineRegistry.byId(effectiveProfileId)?.profile,
                             // 设置页的"强制指定内核系列"与"忽略冲突"：默认 AUTO + 不放行，
                             // 也就是**默认按实测走、冲突即拒绝**。
                             seriesOverride = AppPreferences.kernelSeriesOverride(app),
@@ -701,7 +724,19 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
      * 成功后回调 [onApplied]，失败则把错误写进 state。
      */
     fun saveAsPayload(onApplied: (CustomPayloadInfo) -> Unit) {
-        val bytes = outputLibrary ?: return
+        // ⚠️ `outputLibrary` 是**内存里**的产物。进程被回收 / ViewModel 重建之后它是 null，
+        // 而旧代码这里是 `?: return` —— 点了「用作载荷」**什么都不会发生**：
+        // 没有 Toast、没有报错、按钮也不变。用户看到的就是"点了没用"。
+        // 这正是「点击提权时用不上导入的动态库」最容易走到的一条路。
+        // 现在改成明确报错，并给出下一步（重新构建，或直接导入文件）。
+        val bytes = outputLibrary
+        if (bytes == null) {
+            mutableState.value = mutableState.value.copy(
+                error = getApplication<Application>()
+                    .getString(R.string.builder_output_lost),
+            )
+            return
+        }
         viewModelScope.launch {
             try {
                 val info = withContext(Dispatchers.IO) {

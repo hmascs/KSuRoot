@@ -314,6 +314,52 @@ object KernelPack {
         patcher.patchDataLiterals32 = request.patchDataLiterals32
         val report = patcher.patch(specs)
 
+        // ── ★ 零命中闸门 ──────────────────────────────────────────────
+        //
+        // 实测踩到的形态：X100 Pro（6.1.145）上选到了**上游那一档**
+        // （`up-6-1-145-…`，旧值来自 GhostLock 的 offsets.h），
+        // 而基础库是自编的 `libbaseline_6_1.so`（旧值是 tokay target.h 里那一套）。
+        // 两套旧值毫无交集 → 26 项**一处都没匹配上**，界面只显示
+        // 「需要改写 26 项 · 校验通过 0 项 / 该动态库未引用 26 项偏移」，
+        // 然后**照样出包**。那不是"没什么可改"，是"这两样东西不是一套"。
+        //
+        // 为什么原来的 hasFailures 拦不住：它的判据是
+        // `changed && !ok && !absent` —— **absent 被明确排除在外**，
+        // 理由是"老版本 .so 可能没有对应代码路径"。那个理由对**个别**键成立，
+        // 但对"**全部**键都 absent"不成立：全部没引用只可能是选错了档位/库。
+        //
+        // 所以这里加一条独立的闸门：只要**偏移**规格一条都没落到站点上，就停止打包。
+        // 基址那条不计入 —— 它即使全不匹配也常常会变，会把"一条偏移都没改"掩盖过去。
+        if (request.baseLibrary != null) {
+            val offsetOutcomes = report.outcomes.filter {
+                it.kind == SpecKind.IMAGE_OFFSET && it.changed
+            }
+            val patched = offsetOutcomes.count {
+                it.sitesPatched > 0 || it.dataLiteralsPatched > 0
+            }
+            if (offsetOutcomes.isNotEmpty() && patched == 0) {
+                val msg = listOf(
+                    "这份基础 .so 与所选档位**不是一套**：${offsetOutcomes.size} 项偏移" +
+                        "**一处都没匹配上**（该 .so 里根本没有这些旧值）。",
+                    "基础库：${baseline.id}（${baseline.variantLabel}）",
+                    "档位旧值来自：${baseline.id}，而库里的旧值是编译它时那份 target.h 里的。",
+                    "两边对不上时产物只是**原样拷贝**，装到机器上必然失败 —— 所以这里停止打包。",
+                )
+                msg.forEach { log("[X] $it") }
+                warnings.add("[X] 偏移零命中，已停止打包（详见日志）")
+                return PackResult(
+                    analysis, profile, null, null, baseline, header, json, warnings,
+                    gate = GateDecision.Blocked(
+                        title = "基础库与档位不匹配，已停止打包",
+                        detail = msg,
+                        remedy = "6.1 / 6.12 请选与基础库同源的那一档" +
+                            "（baseline-6-1-tokay / baseline-6-12-honor 及其 -vivo 派生档）；" +
+                            "上游 up-* 档只适用于上游那份 .so。",
+                    ),
+                )
+            }
+        }
+
         if (report.hasFailures) {
             warnings.add("有偏移未能完全替换（详见报告），产出的 .so 可能不适用于本机内核")
         }

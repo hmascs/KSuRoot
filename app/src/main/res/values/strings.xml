@@ -379,4 +379,15 @@
     <string name="payload_note_exec_8g2">1.8 MB standalone executable payload; select it manually from the payload list</string>
     <string name="payload_note_exec_mt6895">4.9 MB; takes the last three digits of the kernel version as an argument — select it manually from the payload list</string>
     <string name="device_security_patch">Android security patch</string>
+    <string name="builder_output_lost">The built payload is no longer in memory (the app was restarted). Build again, or import an .so file directly.</string>
+    <string name="library_title">Dynamic library library</string>
+    <string name="library_hint">Saved under Download/%1$s/&lt;device&gt;/, one copy per device. Pick one to make it active.</string>
+    <string name="library_active">Active</string>
+    <string name="library_use">Use</string>
+    <string name="library_empty">No library yet. Import an .so, or build one on the Build page.</string>
+    <string name="library_group_format">%1$s (%2$d)</string>
+    <string name="library_entry_format">%1$s · %2$s</string>
+    <string name="library_scope_note">Only files added by this app (or explicitly picked through the system picker) are listed. Scoped storage does not let an app scan files created by other apps.</string>
+    <string name="library_swipe_delete">Delete</string>
+    <string name="library_deleted">Removed from library: %1$s</string>
 </resources>
