@@ -242,14 +242,14 @@ object BaselineRegistry {
         // ⚠️ `beta = true`：产物合法、符号值逐条取自构建用的 target.h，
         // 但**没有任何真机验证** —— `vr detag` 只证明代码编进去了。
         BaselineEntry(
-            profile = BaselineProfiles.BASELINE_6_1,
+            profile = BASELINE_6_1,
             scheme = BaselineScheme.UNIVERSAL,
             device = "tokay",
             firmware = "CP2A.260605.012",
             kernelSeries = "6.1",
             gkiBranch = null,
             source = "自编族基线 · 载荷构建/targets/baseline-6.1-tokay/target.h（配方见 载荷构建/README.md）",
-            offsets = familyOffsets(BaselineProfiles.BASELINE_6_1, "载荷构建/targets/baseline-6.1-tokay"),
+            offsets = familyOffsets(BASELINE_6_1, "载荷构建/targets/baseline-6.1-tokay"),
             feasibility = null,
             notes = listOf(
                 "6.1 族通用档：结构体取 F6_1 族，符号值逐条登记，构建时按 boot.img 改写。",
@@ -258,14 +258,14 @@ object BaselineRegistry {
             beta = true,
         ),
         BaselineEntry(
-            profile = BaselineProfiles.BASELINE_6_12,
+            profile = BASELINE_6_12,
             scheme = BaselineScheme.UNIVERSAL,
             device = "honor-ylp-w00",
             firmware = "6.12.38",
             kernelSeries = "6.12",
             gkiBranch = null,
             source = "自编族基线 · 载荷构建/targets/baseline-6.12-gki/target.h（配方见 载荷构建/README.md）",
-            offsets = familyOffsets(BaselineProfiles.BASELINE_6_12, "载荷构建/targets/baseline-6.12-gki"),
+            offsets = familyOffsets(BASELINE_6_12, "载荷构建/targets/baseline-6.12-gki"),
             feasibility = null,
             notes = listOf(
                 "6.12 族通用档：结构体取 F6_12 族（TASK_CRED_OFF=0x900 等，与 6.1 族不同）。",
@@ -383,8 +383,9 @@ object BaselineRegistry {
         // 值逐条取自构建这份 .so 时用的那份 target.h：
         // `载荷构建/targets/baseline-6.1-tokay/target.h`（构建配方 README §2 记载
         // 它与当初的构建现场 `/root/b6/target.h` 逐字节相同）。
-        // ⭐ 标记的两条在 target.h 里是**别名**（`#define SLIDE_INIT_TASK_OFF INIT_TASK_OFF`），
-        // 这里按别名解析后的值登记。
+        // 其中 `SLIDE_INIT_TASK` / `SLIDE_ROOT_TASK_GROUP` 在 target.h 里是**别名**
+        // （`#define SLIDE_INIT_TASK_OFF INIT_TASK_OFF`），这里按别名解析后的值登记 ——
+        // 别名的值自然与 `INIT_TASK` / `ROOT_TASK_GROUP` 相同，那是正确的，不是抄错。
         //
         // 不在这里的 3 个键（SLIDE_NFULNL_LOG_PACKET / SYS_EXIT_TP / RVH_COMMIT_CREDS_TP）
         // 在 target.h 里**故意未定义** —— 它们对应 neutralize_vr()（Option B），
@@ -414,8 +415,8 @@ object BaselineRegistry {
            "SLIDE_NFULNL_LOGGER" to 0x20129d0L,
            "SLIDE_RANDOM_BOOT_ID_DATA" to 0x2137d08L,
            "SLIDE_SYSCTL_BOOTID" to 0x227b498L,
-           ★ "SLIDE_INIT_TASK" to 0x201f640L,
-           ★ "SLIDE_ROOT_TASK_GROUP" to 0x2208580L,
+           "SLIDE_INIT_TASK" to 0x201f640L,
+           "SLIDE_ROOT_TASK_GROUP" to 0x2208580L,
         ),
     )
 
@@ -477,8 +478,8 @@ object BaselineRegistry {
            "SLIDE_NFULNL_LOGGER" to 0x23e2198L,
            "SLIDE_RANDOM_BOOT_ID_DATA" to 0x2687770L,
            "SLIDE_SYSCTL_BOOTID" to 0x2501070L,
-           ★ "SLIDE_INIT_TASK" to 0x23ecdc0L,
-           ★ "SLIDE_ROOT_TASK_GROUP" to 0x261a580L,
+           "SLIDE_INIT_TASK" to 0x23ecdc0L,
+           "SLIDE_ROOT_TASK_GROUP" to 0x261a580L,
         ),
     )
 
