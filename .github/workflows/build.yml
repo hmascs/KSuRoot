@@ -132,6 +132,27 @@ jobs:
             -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" \
             -Dorg.gradle.workers.max=4
 
+      # ⚠️ 这一步以前**不存在**，于是 CI 只证明"编得过"、不证明"测得对"：
+      # assembleRelease 不会执行任何 test 任务（实测日志里 `Task :app:test*` 出现 0 次）。
+      # 后果很具体：改了闸门语义、加了回归用例，CI 全绿，而用例一次都没跑过 ——
+      # 又一个"假通过"。本工程的验收门（ksu-toolchain/compile_check.sh）
+      # 是**编译 + 单测**两件事，CI 必须对齐它，否则两边结论会不一致。
+      - name: Run unit tests
+        run: |
+          ./gradlew --no-daemon --console=plain :app:testDebugUnitTest \
+            -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" \
+            -Dorg.gradle.workers.max=4
+
+      # 测试失败时最需要的就是报告本身 —— 不传上来，日志里只剩一行 FAILED 和用例名。
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Show outputs
         if: always()
         run: |
