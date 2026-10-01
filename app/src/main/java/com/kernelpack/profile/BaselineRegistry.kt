@@ -410,6 +410,9 @@ object BaselineRegistry {
             notes = listOf(
                 "6.1 族通用档：结构体取 F6_1 族，符号值逐条登记，构建时按 boot.img 改写。",
                 "不带 neutralize_vr()（Option B）：本族没有可核实的 tracepoint 偏移。",
+                "⚠️ vr.ko 的两个标记字节偏移（0x06 / 0x2c）编译期烤死、patch 改不了；" +
+                    "它们取自 PD2520（6.6）那份 target.h，**跨内核版本从未实测验证**" +
+                    "（详见 VrKoBypass.VR_TAG_A_OFF 的说明）。蓝厂机型上这条前提必须先在真机确认。",
             ),
             beta = true,
         ),
@@ -426,6 +429,7 @@ object BaselineRegistry {
             notes = listOf(
                 "6.12 族通用档：结构体取 F6_12 族（TASK_CRED_OFF=0x900 等，与 6.1 族不同）。",
                 "符号来源含 CROSS_REFERENCE（荣耀 6.12.38 实测），构建时按 boot.img 的值逐项改写。",
+                "⚠️ 同上：vr.ko 标记偏移 0x06 / 0x2c 取自 6.6 的 target.h，跨版本未经实测。",
             ),
             beta = true,
         ),
