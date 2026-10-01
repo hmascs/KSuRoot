@@ -119,7 +119,7 @@ object KernelSchemeSelector {
             }
         }
 
-        // ── ① 主线：6.6 / 6.12 ──
+        // ── ① 主线：见 BaselineRegistry.MAINLINE_SERIES ──
         if (series in MAINLINE_SERIES) {
             return Decision.Selected(
                 series = series,

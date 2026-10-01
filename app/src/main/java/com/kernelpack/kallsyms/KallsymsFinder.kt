@@ -551,8 +551,9 @@ class KallsymsFinder(private val img: ByteArray, private val opts: KallsymsOptio
                 position -= numSymbols * offsetByteSize
                 if (position < 0) { lastError = "地址表越界"; continue }
                 values = readSignedArray(position, numSymbols, offsetByteSize, le)
-                if (canSkip && values.size >= 3) {
-                    if (!(values[0] <= values[1] && values[1] <= values[2])) { lastError = "偏移表非单调"; continue }
+                if (canSkip) {
+                    val why = whyNotOffsetTable(values)
+                    if (why != null) { lastError = why; continue }
                 }
             } else if (pcRelative) {
                 localPcRelative = true
@@ -947,6 +948,69 @@ class KallsymsFinder(private val img: ByteArray, private val opts: KallsymsOptio
         }
     }
 }
+
+
+/**
+ * 这批 s32 看起来像不像 `kallsyms_offsets` 表。像 → 返回 null；不像 → 返回原因。
+ *
+ * ### 为什么不能只查「前三项单调」
+ *
+ * 这是 2026-10 那次事故留下的教训。当时偏移表定位算错了 8 字节，
+ * 从表**内部**读出来的数组照样单调 —— 实测两个内核都是如此：
+ *
+ * | 读的位置 | 首项 | 32 点等距单调 |
+ * |---|---|---|
+ * | 真表起点（6.6.30） | **0** | 单调 |
+ * | 真表内部 0x149ada8 | 29691400 | **照样单调** |
+ * | 真表起点（6.12.38） | **0** | 单调 |
+ * | 真表内部 0x179fc14 | 27299564 | **照样单调** |
+ *
+ * 也就是说「单调」这个判据**几乎零区分度** —— 偏移表是按地址排好序的，
+ * 从它中间任意位置读都是单调的。当时正是靠它放行，才一路走到
+ * 「基址取到一段 ASCII、全部符号解析失败」。
+ *
+ * ### 真正有区分度的是表的**形状**
+ *
+ * `kallsyms_offsets[i] = 符号地址 - kallsyms_relative_base`，
+ * 而 `kallsyms_relative_base` 就是**最低的那个符号地址**（`_text`）。
+ * 所以表首项必然极小 —— 两个内核实测都**正好是 0**，
+ * 而表内部的任何位置首项都在两千万以上。这一条就能干净地分开。
+ *
+ * 三条一起用（宁可多试一组参数，也不要拿一段文本中间的数当偏移表）：
+ *
+ * 1. 首项必须是抽查范围内的最小值 —— 表按地址排序，首项不可能比后面还大；
+ * 2. 首项必须 [FIRST_OFFSET_MAX] 以内 —— 第一个符号在基址附近，不会离几千万；
+ * 3. 末项必须 [LAST_OFFSET_MAX] 以内 —— 内核符号不会跑到 512 MB 之外。
+ *
+ * 注意本函数只服务 Linux **6.4+** 的新布局分支；6.1 走 `numSymsOffset` 那条老路，
+ * 不经过这里，因此不受影响。
+ */
+internal fun whyNotOffsetTable(values: LongArray): String? {
+    if (values.size < 3) return "偏移表过短（${values.size} 项）"
+
+    val sample = if (values.size > 512) 512 else values.size
+    var minSeen = Long.MAX_VALUE
+    for (i in 0 until sample) if (values[i] < minSeen) minSeen = values[i]
+
+    val first = values[0]
+    if (first > minSeen) {
+        return "偏移表首项不是最小值（首项=$first 抽查最小=$minSeen）—— 多半从表内部读起了"
+    }
+    if (first < 0 || first > FIRST_OFFSET_MAX) {
+        return "偏移表首项不像 relative_base 附近的偏移（首项=$first）"
+    }
+    val last = values[values.size - 1]
+    if (last < 0 || last > LAST_OFFSET_MAX) {
+        return "偏移表末项超出合理范围（末项=$last）"
+    }
+    return null
+}
+
+/** 表首项的容许上界：第一个符号应当就在基址附近。 */
+internal const val FIRST_OFFSET_MAX = 0x10000L        // 64 KB
+
+/** 表末项的容许上界：内核镜像里的符号不会超过 512 MB。 */
+internal const val LAST_OFFSET_MAX = 0x2000_0000L     // 512 MB
 
 /**
  * 向上对齐到 [align] 的整数倍。

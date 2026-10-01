@@ -35,7 +35,7 @@ enum class LayoutFamily(val label: String, val sizeBytes: Int, val words: Int) {
  * 内核支持分级（2026-09-12 定的产品口径）。
  *
  * ```
- *   主线  6.6 / 6.12           —— 「通用方案」与「vivo / iQOO 方案」都要覆盖
+ *   主线  见 MAINLINE_SERIES   —— 「通用方案」与「vivo / iQOO 方案」都要覆盖
  *   测试  5.x（含 5.10 / 5.15）—— 仅作 beta 测试，UI 必须明确标注「测试」
  * ```
  *
@@ -80,7 +80,8 @@ enum class SeriesOverride(
  */
 fun tierOfRelease(release: String): KernelTier {
     // 口径单一来源：以 BaselineRegistry.MAINLINE_SERIES 为准。
-    // [2026-09-12] 主线 = 6.6 / 6.12；6.x 里的其它次版本（如 6.1）**不算主线**。
+    // [2026-10] 取值一律看 BaselineRegistry.MAINLINE_SERIES，此处**不复述**。
+    // （2026-09-12 这里曾写死「6.6 / 6.12，6.1 不算主线」；该口径 2026-09-25 已作废。）
     val series = BuildGate.seriesOf(release) ?: return KernelTier.TEST
     return if (series in BaselineRegistry.MAINLINE_SERIES) KernelTier.MAINLINE else KernelTier.TEST
 }
@@ -230,7 +231,11 @@ object BuildGate {
             )
         }
 
-        // 主线判定（口径单一来源：BaselineRegistry.MAINLINE_SERIES = 6.6 / 6.12）
+        // 主线判定（口径单一来源：BaselineRegistry.MAINLINE_SERIES）
+        // [2026-10] 这里原来把口径写死成「6.6 / 6.12」—— 但那张表 2026-09-25 就
+        // 已经把 6.1 纳进去了（6.1 有自己的族基线，不再有「拿 6.6 偏移打 6.1」的风险）。
+        // 注释写死会造成两种误判：读代码的人以为 6.1 是测试线，
+        // 以及下次加系列时忘了改这里。所以一律引用变量，不再复述取值。
         val mainline = series in BaselineRegistry.MAINLINE_SERIES
 
         val conflicts = ArrayList<String>()
@@ -254,7 +259,8 @@ object BuildGate {
         // ── 支持分级提示：开关已开、确实要走测试线时，出包前再提醒一次 ──
         if (!mainline && major == 5) {
             notes.add(
-                "[测试内核] $series 不在主线支持范围内（主线为 6.6 / 6.12）。" +
+                "[测试内核] $series 不在主线支持范围内" +
+                    "（主线为 ${BaselineRegistry.MAINLINE_SERIES.joinToString(" / ")}）。" +
                     "你已手动开启「5.x 内核支持（beta）」。5.x 的布局锚点只有上游 target.h 一条腿，"
             )
             notes.add(
