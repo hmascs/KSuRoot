@@ -30,7 +30,7 @@
 
 可重放配方在 [`载荷构建/README.md`](载荷构建/README.md)（含出处分级与已知限制）。
 
-> 上面是源码树尺寸。APK 里那两份更小（154872 B / 154856 B）—— release 构建会做
+> 上面是源码树尺寸。APK 里那两份更小（154856 B / 154840 B）—— release 构建会做
 > native 符号剥离，与 `vr detag` 无关（已从成品包取出复核，仍是 2）。
 
 **能力与闸门成对出现**：`com.kernelpack.vivo` 下新增 `VrKoPayloadCheck`（只读字节判据）

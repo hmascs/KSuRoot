@@ -39,8 +39,8 @@ bash build_baselines.sh          # 在 Ubuntu chroot 里跑
 
 | 目标 | 输出 | 装到哪 |
 |---|---|---|
-| `baseline-6.1-tokay` | `build/baseline-6.1-tokay/bin/preload.so` | `merge-repo/app/src/main/jniLibs/arm64-v8a/libbaseline_6_1.so` |
-| `baseline-6.12-gki` | `build/baseline-6.12-gki/bin/preload.so` | `merge-repo/app/src/main/jniLibs/arm64-v8a/libbaseline_6_12.so` |
+| `baseline-6.1-tokay` | `build/baseline-6.1-tokay/bin/preload.so` | `app/src/main/jniLibs/arm64-v8a/libbaseline_6_1.so` |
+| `baseline-6.12-gki` | `build/baseline-6.12-gki/bin/preload.so` | `app/src/main/jniLibs/arm64-v8a/libbaseline_6_12.so` |
 
 当前已装进仓库的两份产物：
 
@@ -200,9 +200,9 @@ chroot-distro login ubuntu -- bash -lc \
 
 ```bash
 cp /root/vrbuild/build/baseline-6.1-tokay/bin/preload.so \
-   merge-repo/app/src/main/jniLibs/arm64-v8a/libbaseline_6_1.so
+   app/src/main/jniLibs/arm64-v8a/libbaseline_6_1.so
 cp /root/vrbuild/build/baseline-6.12-gki/bin/preload.so \
-   merge-repo/app/src/main/jniLibs/arm64-v8a/libbaseline_6_12.so
+   app/src/main/jniLibs/arm64-v8a/libbaseline_6_12.so
 ```
 
 装完**必须**跑一次：
