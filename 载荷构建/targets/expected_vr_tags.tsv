@@ -1,0 +1,14 @@
+# 各目标的 vr tag 偏移 —— **真机实测值**，不是从 target.h 抄的。
+#
+# 这是构建闸门的**独立真值来源**：脚本拿它去比 target.h 的声明、再比产物的反汇编。
+# 如果只拿 target.h 跟产物比，那是自洽的、永远为真 —— 等于没有闸门
+# （2026-10 就是这样漏掉「6.1 填成 0x06」的）。
+#
+# 列：target	kernel_family	tag_a	tag_b	measured_on
+baseline-6.1-tokay	6.1	0x04	0x2c	vivo X100 Pro (PD2324) / 6.1.145-android14-11-maybe-dirty
+baseline-6.12-gki	6.12	0x06	0x2c	iQOO 15 (PD2505) / 6.12.58-android16-6-g0a092cc0037a
+# 以下是**记录行**，不是构建目标（没有对应的 target.h）：
+#   6.6 目前用的是上游二进制 libbs.so / libionstack.so，本仓库不重编它们。
+#   它们的偏移是反汇编那两份 .so 得到的，登记在此备查。
+# 格式同上，第 1 列写 "（非构建目标）" 以示区别。
+（非构建目标）libbs.so	6.6	0x06	0x2c	本机 PD2463 / 6.6.89-android15-8-g1f71897ac249（反汇编 libbs.so 得，与实测一致）

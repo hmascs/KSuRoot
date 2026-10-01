@@ -202,7 +202,7 @@ object BaselineRegistry {
      *
      * ### 2026-09-25 重编（两个缺陷）
      *
-     * 产物由 135184 B → **175792 B**，可重放配方见 `载荷构建/README.md`。
+     * 产物由 135184 B → **175776 B**，可重放配方见 `载荷构建/README.md`。
      *
      * 1. **不带 vr.ko 反 root 绕过**：蓝厂机型上会"提权成功后被子进程探针杀掉"。
      *    换成带 `patch_task_vr_tag()` 的 `root.c` 后，`strings | grep -c "vr detag"` = 2。
