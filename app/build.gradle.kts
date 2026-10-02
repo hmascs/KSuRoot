@@ -19,8 +19,8 @@ android {
         applicationId = "com.ting.root"
         minSdk = 33
         targetSdk = 36
-        versionCode = 411
-        versionName = "4.1.1"
+        versionCode = 412
+        versionName = "4.1.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {

@@ -6,14 +6,33 @@
 
 本分支以 KSuRoot 为蓝本，完整同步 [Root-My-Galaxy](https://github.com/BuSung-dev/Root-My-Galaxy) v0.2.6 主线更新，并在此基础上增加了**载荷构建**、**厂商载荷内置**与一整套液态玻璃 UI。
 
-> Mod by **hmascs** · 版本 **4.1.1** · Apache-2.0
+> Mod by **hmascs** · 版本 **4.1.2** · Apache-2.0
 > 仓库：<https://github.com/hmascs/KSuRoot>
 
 ---
 
-## 4.1.1 有什么变化
+## 4.1.2 有什么变化
 
-**4.1.1 = 4.1.0 + 18 个提交。** 这些提交原本停在 `fix/baseline-routing` 分支上，
+### 本轮（4.1.2）新增：从镜像读出 vr.ko 的标记偏移
+
+vr.ko 给来自 app 的 task 打标记，那个偏移有 `0x04` / `0x06` 两种，而且是**编译期
+烤进载荷**、patch 不了的。更麻烦的是**同一台设备的两份 vr.ko 就各一种**
+（Y300 Pro+ 的 vendor_boot 里就有两份，`srcversion` 完全相同）——
+选错的表现是「清错字节、标记没抹掉、子进程照样被杀」，而日志里一切正常。
+
+现在蓝厂方案会要求你给一份 **`vendor_boot.img`**：应用从里面那份**实际加载的**
+`lib/modules/vr.ko` 读出本机真正的偏移，再**改写载荷**。四份自带/自编库
+（`libbaseline_6_1` / `libbaseline_6_12` / `libbs` / `libionstack`）都强制配自己的档位，
+选岔了会被**零命中闸门**当场拦下，而不是给你一个原样拷贝的产物。
+
+另外新增**「导入完整刷机包」**：直接选你下载的 OTA zip 或 fastboot tgz，
+它自己把 `boot` 和 `vendor_boot` 取出来，不用你先解压、也不用手动提取。
+
+> ⚠️ 完整包要**整份拷进应用缓存**才能随机读（ZIP 中央目录在包尾，而 SAF 的 uri
+> 变不成 File）。空间不够会当场拒绝，抽完立刻删缓存。
+
+
+**4.1.2 = 4.1.0 + 19 个提交。** 这些提交原本停在 `fix/baseline-routing` 分支上，
 现已并入 `main`。**已发布的 4.1.0 安装包不含它们** —— 下面每一条都是那之后才修掉的。
 
 ### 修掉的静默失败
