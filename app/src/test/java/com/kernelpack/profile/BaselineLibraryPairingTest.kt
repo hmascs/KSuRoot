@@ -2,6 +2,7 @@ package com.kernelpack.profile
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -38,12 +39,48 @@ class BaselineLibraryPairingTest {
     }
 
     @Test
-    fun `非自编库不做映射 —— 上游载荷要继续走原来的路`() {
-        // 上游那份 .so 的旧值来自 GhostLock 的 offsets.h，
-        // 与 `up-*` 档正好配套。给它硬套自编档反而是错的。
-        assertNull(BaselineRegistry.BaselineLibraries.profileIdForLibrary("libbs.so"))
-        assertNull(BaselineRegistry.BaselineLibraries.profileIdForLibrary("libionstack.so"))
+    fun `方案自带的 6_6 两份库也必须映射到自己的档`() {
+        // 真机上漏出来的一条：PD2463（6.6.89）上路由按完整内核串命中了**上游档**
+        // `up-6-6-89-…-vivo`（旧值来自 GhostLock 的 offsets.h），而基础库是 `libbs.so`
+        // （旧值是 PD2520 那份 target.h 里的）→ 25 项一处都没匹配上，
+        // 被零命中闸门当场拦下。拦得对，但根因是这张映射表漏了 6.6。
+        //
+        // 这张用例把四份**方案自带/自编**的库全部钉死；谁再漏一份，这里就红。
+        assertEquals(
+            BaselineProfiles.PD2520.id,
+            BaselineRegistry.BaselineLibraries.profileIdForLibrary("libbs.so"),
+        )
+        assertEquals(
+            BaselineProfiles.IONSTACK_P10.id,
+            BaselineRegistry.BaselineLibraries.profileIdForLibrary("libionstack.so"),
+        )
+    }
+
+    @Test
+    fun `四份自带库都有映射，一个不漏`() {
+        val libs = listOf(
+            BaselineRegistry.BaselineLibraries.SIX_ONE,
+            BaselineRegistry.BaselineLibraries.SIX_TWELVE,
+            "libbs.so",
+            "libionstack.so",
+        )
+        for (lib in libs) {
+            assertNotNull("$lib 没有对应的档位映射 —— 补上，否则路由会选到别的档，产物静默错值", 
+                BaselineRegistry.BaselineLibraries.profileIdForLibrary(lib))
+        }
+    }
+
+    @Test
+    fun `认不出的库不做映射 —— 不猜`() {
+        // ⚠️ 这条用例原来写的是 assertNull("libbs.so") / assertNull("libionstack.so") ——
+        // 那是当时"只覆盖了自编 6.1/6.12"的**旧假设**。真机上 PD2463（6.6.89）
+        // 正是因为这两份没映射，路由选到了上游档 `up-6-6-89-…`，25 项偏移一处都没匹配上。
+        // 所以那两条断言不是"保护"，是**把缺陷固化进了用例**。
+        //
+        // 现在只断言"真的认不出的"返回 null：随包收集的那些第三方 libksu_*.so
+        // 没有、也不该有档位映射（它们的旧值我们根本没登记）。
         assertNull(BaselineRegistry.BaselineLibraries.profileIdForLibrary("libksu_vivo_x.so"))
+        assertNull(BaselineRegistry.BaselineLibraries.profileIdForLibrary("libcve43499root.so"))
         assertNull(BaselineRegistry.BaselineLibraries.profileIdForLibrary(""))
     }
 

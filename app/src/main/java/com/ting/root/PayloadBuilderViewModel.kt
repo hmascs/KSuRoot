@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.kernelpack.boot.RomPackageExtractor
 import com.kernelpack.KernelPack
 import com.kernelpack.PackRequest
 import com.kernelpack.PackResult
@@ -21,6 +22,8 @@ import com.kernelpack.profile.BaselineRegistry
 import com.kernelpack.profile.BaselineProfiles
 import com.kernelpack.vivo.VrKoBypass
 import com.kernelpack.vivo.VrKoGateDecision
+import com.kernelpack.vivo.VrKoProbe
+import com.kernelpack.vivo.VrKoTagPatcher
 import com.kernelpack.vivo.VrKoPayloadGate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -62,6 +65,28 @@ enum class PayloadScheme(
      * 不传的话闸门只能按 UNKNOWN 处理并跳过注册表建议（那就白做了）。
      */
     val baselineScheme: BaselineScheme,
+    /**
+     * 这个方案**是否必须提供 `vendor_boot.img`**。
+     *
+     * ### 为什么只有蓝厂方案要
+     *
+     * 蓝厂方案的核心是多做一层 **vr.ko 反 root 绕过**：`vr.ko` 会给来自 app 的 task
+     * 打两个标记字节，该 task 一旦持有 `euid 0`，`sys_exit` 探针就把它杀掉。
+     * 要抹掉那两个字节，就得知道**它们在哪** —— 而那个偏移是**编译期烤进载荷**的。
+     *
+     * 问题在于：实测它有 `0x04` / `0x06` 两种取值，**同一台设备的两份 `vr.ko` 就各一种**。
+     * 选错的表现是"清错了字节、标记没抹掉、而自检报成功" —— 提权看着成功，子进程随即被杀，
+     * 从现象上根本看不出来是这个原因。
+     *
+     * 那台机器**实际加载的那份 `vr.ko`** 就在 `vendor_boot.img` 的 vendor_ramdisk 里。
+     * 读它 = 把这个值定死，而不是赌。所以蓝厂方案要这份镜像。
+     *
+     * ### 通用方案为什么不要
+     *
+     * 通用方案**不做 vr.ko 绕过**（`VrKoPayloadGate` 在非蓝厂方案下直接短路，
+     * 连 ELF 都不解析），也就没有这个偏移要定 —— 给它要 `vendor_boot` 纯属多余。
+     */
+    val needsVendorBoot: Boolean,
 ) {
     /** 通用方案：Pixel / GKI 线，不含厂商绕过。 */
     Universal(
@@ -69,6 +94,7 @@ enum class PayloadScheme(
         filePrefix = "payload-universal",
         versionLabel = "IonStack · blazer-CP2A.260605.012",
         baselineScheme = BaselineScheme.UNIVERSAL,
+        needsVendorBoot = false,
     ),
     /** vivo / iQOO 方案：多一条 vr.ko 反 root 绕过。 */
     VivoVrKo(
@@ -77,6 +103,7 @@ enum class PayloadScheme(
         // 就是 boxiaolanya2008 仓库 release v1.3.0 里的 preload.so（176544 字节）
         versionLabel = "release v1.3.0",
         baselineScheme = BaselineScheme.VIVO,
+        needsVendorBoot = true,
     ),
 }
 
@@ -95,6 +122,22 @@ enum class PayloadScheme(
 enum class BuildBlockKind {
     /** 识别到 5.x 内核，但「5.x 内核支持（beta）」没开。 */
     TEST_KERNEL_DISABLED,
+
+    /**
+     * 蓝厂方案没给 `vendor_boot.img`。
+     *
+     * 为什么这算"阻断"而不是"警告"：那个标记偏移只有 `0x04` / `0x06` 两种，
+     * 赌一个就是 50% 概率产出**看起来正常、实际抹不掉标记**的载荷 ——
+     * 而它的失败现象（提权成功、子进程随即被杀）从日志上完全看不出原因。
+     * 与其给一份可能是错的，不如当场说清楚要什么。
+     */
+    VENDOR_BOOT_REQUIRED,
+
+    /** 给了 `vendor_boot.img`，但里面读不出这台机器的 vr.ko（格式/内容不符）。 */
+    VENDOR_BOOT_UNREADABLE,
+
+    /** 读到了本机 tag A，但没能把它改写到载荷里（锚点找不到 / 载荷不自洽）。 */
+    VR_KO_TAG_PATCH_FAILED,
 
     /** 该 (方案, 内核系列) 组合还没有登记偏移产物（如 6.12 暂无数据）。 */
     BASELINE_NOT_REGISTERED,
@@ -171,6 +214,19 @@ data class PayloadBuildState(
     /** 已选 boot.img 的显示名与大小。 */
     val sourceName: String = "",
     val sourceSize: Long = 0,
+    /**
+     * 已选 vendor_boot.img 的显示名与大小。
+     *
+     * **只有蓝厂方案要它** —— 通用方案不做 vr.ko 绕过，也就没有那个偏移要定。
+     * 为什么不在这里解释"为什么要"：那段说明放在界面上（用户看得见的地方），
+     * 而不是埋在数据类里。见 `builder_vendor_boot_why` 那条文案。
+     */
+    val vendorBootName: String = "",
+    val vendorBootSize: Long = 0,
+    /** 从 vendor_boot 里探到的本机 tag A（`0x04` / `0x06`）；没探到就是 null。 */
+    val probedTagA: Long? = null,
+    /** 探针结论一句话（日志与界面共用）。 */
+    val probeSummary: String = "",
     /** 构建过程的日志（最新的在最后）。 */
     val log: List<String> = emptyList(),
     /** 被硬拦时的原因类别；非 null 时 UI 应弹阻断框（而不是只标红）。 */
@@ -242,6 +298,8 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
 
     /** 记住用户选的 boot.img，配置变化后不必重选。 */
     private var bootUri: Uri? = null
+    private var vendorBootUri: Uri? = null
+    private var vendorBootFile: File? = null
 
     /**
      * 输入也可以是一个**本地文件**而不是 `content://` URI ——
@@ -277,6 +335,158 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
             sourceSize = size,
             error = null,
         )
+    }
+
+    /**
+     * 记住用户选的 `vendor_boot.img`（**蓝厂方案专用**）。
+     *
+     * 载荷里 vr.ko 的 tag A 偏移是**编译期烤死**的，而实测它有 `0x04` / `0x06` 两种取值 ——
+     * 同一台设备的两份 `vr.ko` 就各一种。选错就是"清错字节、标记没抹掉、而自检报成功"
+     * 这种最难查的失败。`vendor_boot` 里装着这台机器**实际加载的那份 vr.ko**（平铺的
+     * `lib/modules/vr.ko`），读它就能把值定死，再由 [com.kernelpack.vivo.VrKoTagPatcher] 改写载荷。
+     */
+    fun rememberVendorBootImage(uri: Uri, name: String, size: Long) {
+        vendorBootUri = uri
+        vendorBootFile = null
+        mutableState.value = mutableState.value.copy(
+            vendorBootName = name,
+            vendorBootSize = size,
+            error = null,
+        )
+    }
+
+    /** 同 [rememberVendorBootImage]，但输入已经是本地文件（整包导入的产物走这条）。 */
+    fun rememberVendorBootFile(file: File, name: String, size: Long) {
+        vendorBootFile = file
+        vendorBootUri = null
+        mutableState.value = mutableState.value.copy(
+            vendorBootName = name,
+            vendorBootSize = size,
+            error = null,
+        )
+    }
+
+    // ────────────────────────── 导入完整刷机包 ──────────────────────────
+
+    /**
+     * 用户选了一个**完整刷机包**，直接从里面取出 boot / vendor_boot。
+     *
+     * ### 为什么必须先拷到应用缓存
+     *
+     * 文件选择器给的是 `content://` uri，而 [RomPackageExtractor] 的接口收 `File`
+     * （它内部用 `RandomAccessFile` 随机读，ZIP64 中央目录在包尾，非随机访问做不了）。
+     * Android 上 **SAF 的 uri 没办法变成 File** —— 所以只能整体拷一份。
+     *
+     * ⚠️ **这个代价是真的**：完整包动辄 4–8 GiB，拷一份就要那么多缓存空间、也要时间。
+     * 所以：
+     *  - 拷之前先查可用空间，不够就**当场拒绝**并说清楚差多少，不做半截拷贝；
+     *  - 拷完立刻抽分区，抽完**马上删掉缓存**（失败路径也删）；
+     *  - 日志里如实写出"正在拷贝 N GiB"以及为什么。
+     *
+     * 如果哪天 [RomPackageExtractor] 支持了"给一个可随机读的流"，
+     * 这一整段拷贝就可以去掉 —— 那才是这个功能该有的样子。
+     */
+    fun importRomPackage(uri: Uri, name: String, size: Long) {
+        if (mutableState.value.phase.busy) return
+        mutableState.value = mutableState.value.copy(
+            phase = PayloadBuildPhase.Reading,
+            log = emptyList(),
+            error = null,
+            blockedKind = null,
+        )
+        viewModelScope.launch {
+            val lines = ArrayList<String>(64)
+            fun say(line: String) {
+                lines.add(line)
+                mutableState.value = mutableState.value.copy(log = lines.toList())
+            }
+            val cache = File(getApplication<Application>().cacheDir, "rompack")
+            var staged: File? = null
+            try {
+                cache.mkdirs()
+                staged = File(cache, "package.tmp")
+
+                // ① 先查空间，不够就别开始 —— 拷到一半失败比不拷更让人困惑。
+                if (size > 0) {
+                    val usable = cache.usableSpace
+                    if (usable < size + (64L * 1024 * 1024)) {
+                        error(
+                            "缓存空间不够：这个包 %.1f GiB，缓存只剩 %.1f GiB。"
+                                .format(size / 1073741824.0, usable / 1073741824.0) +
+                                "完整包要先整份拷进缓存才能随机读（ZIP 的中央目录在包尾）。",
+                        )
+                    }
+                }
+
+                say("[*] 正在把 $name 拷进缓存（%.1f GiB）—— 完整包要整份拷进来才能随机读".format(size / 1073741824.0))
+                withContext(Dispatchers.IO) {
+                    getApplication<Application>().contentResolver.openInputStream(uri).use { input ->
+                        requireNotNull(input) { "读不到选中的文件" }
+                        staged.outputStream().use { output ->
+                            input.copyTo(output, 1 shl 20)
+                            output.fd.sync()
+                        }
+                    }
+                }
+                say("[+] 拷完：${staged.length() / 1048576} MiB")
+
+                // ② 取分区。要**两个都对账** —— extract 的语义是"取不到的键不出现"，
+                // 所以不能拿"拿到了一个"当成"两个都拿到了"。
+                val found = withContext(Dispatchers.IO) {
+                    RomPackageExtractor.extract(staged, setOf("boot", "vendor_boot"))
+                }
+                val boot = found["boot"]
+                val vendorBoot = found["vendor_boot"]
+                if (boot == null) {
+                    val have = withContext(Dispatchers.IO) {
+                        runCatching { RomPackageExtractor.listPartitions(staged) }.getOrDefault(emptyList())
+                    }
+                    error("这个包里没有 boot 分区。包里的分区有：${have.take(30).joinToString(", ")}")
+                }
+                say("[+] boot：${boot.size / 1048576} MiB")
+                withContext(Dispatchers.IO) { rememberBootImageBytes(boot, "boot.img") }
+
+                if (vendorBoot != null) {
+                    say("[+] vendor_boot：${vendorBoot.size / 1048576} MiB")
+                    withContext(Dispatchers.IO) { rememberVendorBootBytes(vendorBoot, "vendor_boot.img") }
+                } else {
+                    say("[i] 这个包里没有 vendor_boot —— 通用方案不需要它；蓝厂方案要另选一份。")
+                }
+                say("[i] 从完整包里取好了，不用你自己解压。")
+            } catch (e: Throwable) {
+                lines.add("[X] ${e.message ?: e::class.java.simpleName}")
+                mutableState.value = mutableState.value.copy(
+                    log = lines.toList(),
+                    phase = PayloadBuildPhase.Failed,
+                    error = e.message ?: e::class.java.simpleName,
+                )
+            } finally {
+                // ③ 不管成没成，缓存立刻删 —— 它可能有几个 GiB。
+                runCatching { staged?.delete() }
+            }
+        }
+    }
+
+    /** 把内存里的镜像字节落成一个临时文件，再交给既有的"本地文件输入"路径。 */
+    private fun rememberBootImageBytes(bytes: ByteArray, name: String) {
+        val f = writeTempImage(bytes, "rom_boot.img")
+        rememberBootImageFile(f, name, bytes.size.toLong())
+    }
+
+    private fun rememberVendorBootBytes(bytes: ByteArray, name: String) {
+        val f = writeTempImage(bytes, "rom_vendor_boot.img")
+        rememberVendorBootFile(f, name, bytes.size.toLong())
+    }
+
+    private fun writeTempImage(bytes: ByteArray, fileName: String): File {
+        val dir = File(getApplication<Application>().filesDir, "builder_input")
+        dir.mkdirs()
+        val f = File(dir, fileName)
+        f.outputStream().use { out ->
+            out.write(bytes)
+            out.fd.sync()
+        }
+        return f
     }
 
     // ────────────────────────── 解析完整包链接 ──────────────────────────
@@ -394,10 +604,32 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
         }
         if (mutableState.value.phase.busy) return
 
-        mutableState.value = PayloadBuildState(
+        // ⚠️ 这里**必须用 copy，不能构造新的 PayloadBuildState**。
+        //
+        // 踩过的坑：原来写的是 `PayloadBuildState(phase=…, sourceName=…, sourceSize=…)` ——
+        // 只传了 3 个参数，其余全部取**默认值**，于是 `vendorBootName` 被打回 `""`。
+        // 而下面那道「蓝厂方案要 vendor_boot」的闸门正是拿 `vendorBootName` 判的，
+        // 结果**恒为真** → 蓝厂方案 100% 被自己的闸门拦死，用户选完 vendor_boot
+        // 再点构建还是被拦（死循环）。本轮新写的 VrKoProbe / VrKoTagPatcher
+        // 因此**在生产路径上一行都跑不到**。
+        //
+        // 所以：保留输入（sourceName/Size、vendorBootName/Size），
+        // 只清上一轮的产物、日志与阻断结论。
+        mutableState.value = mutableState.value.copy(
             phase = PayloadBuildPhase.Reading,
-            sourceName = mutableState.value.sourceName,
-            sourceSize = mutableState.value.sourceSize,
+            log = emptyList(),
+            summary = "",
+            notices = emptyList(),
+            blockedKind = null,
+            error = null,
+            probedTagA = null,
+            probeSummary = "",
+            outputName = "",
+            outputSize = 0,
+            outputSha256 = "",
+            headerName = "",
+            savedPath = "",
+            appliedAsPayload = false,
         )
         outputLibrary = null
         outputHeader = ""
@@ -511,7 +743,7 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
                     return@launch
                 }
 
-                val baseLibrary = withContext(Dispatchers.IO) {
+                var baseLibrary = withContext(Dispatchers.IO) {
                     readBaseLibrary(app, scheme, selected.release)
                 }
                 publish(
@@ -583,6 +815,92 @@ class PayloadBuilderViewModel(application: Application) : AndroidViewModel(appli
                 }
                 if (vrDecision is VrKoGateDecision.Pass) {
                     publish(app.getString(R.string.builder_vr_ko_ok))
+                }
+
+                // ── 蓝厂方案：读 vendor_boot 里的 vr.ko，把载荷的 tag A **改成本机的值** ──
+//
+// 到这一步为止，"载荷带没带绕过"已经查过了；这一步查的是另一半：
+// **它要抹的那个字节，在这台机器上是不是对的**。
+// 详细理由见 PayloadScheme.needsVendorBoot 的注释，这里只说流程。
+if (scheme.needsVendorBoot) {
+                    // 判据用**真正的输入句柄**，不是展示用的名字。
+                    // `vendorBootName` 是给人看的（可能是「还没选」这种占位），
+                    // 拿它当控制变量早晚会出事 —— 这次就出过一次（见上面的状态重置注释）。
+                    if (vendorBootUri == null && vendorBootFile == null) {
+                        val msg = "蓝厂方案需要一份 vendor_boot.img（用来确定本机 vr.ko 的标记偏移）。\n" +
+                            "没有它就只能赌「0x04 / 0x06」里的一个 —— 赌错的表现是提权看着成功、" +
+                            "子进程随即被杀，而日志里一切正常。所以这里不猜，停止打包。"
+                        publish("[X] $msg")
+                        mutableState.value = mutableState.value.copy(
+                            phase = PayloadBuildPhase.Failed,
+                            error = msg,
+                            blockedKind = BuildBlockKind.VENDOR_BOOT_REQUIRED,
+                        )
+                        return@launch
+                    }
+
+                    val probe = withContext(Dispatchers.IO) {
+                        runCatching {
+                            val bytes = vendorBootFile?.readBytes()
+                                ?: vendorBootUri?.let { app.contentResolver.openInputStream(it)?.use { s -> s.readBytes() } }
+                                ?: error("读不到 vendor_boot.img 的内容")
+                            VrKoProbe.probe(bytes)
+                        }
+                    }
+                    if (probe.isFailure) {
+                        val why = probe.exceptionOrNull()?.message ?: "未知原因"
+                        val msg = "认不出这台机器的 vr.ko 标记偏移：$why"
+                        publish("[X] $msg")
+                        mutableState.value = mutableState.value.copy(
+                            phase = PayloadBuildPhase.Failed,
+                            error = msg,
+                            blockedKind = BuildBlockKind.VENDOR_BOOT_UNREADABLE,
+                        )
+                        return@launch
+                    }
+                    val detected = probe.getOrThrow()
+                    publish(
+                        "[i] 从 vendor_boot 读到本机 vr.ko：${detected.modulePath}（${detected.moduleSize} B，" +
+                            "sha256 ${detected.moduleSha256Prefix}…）",
+                    )
+                    publish(
+                        "[i] 本机 tag A = 0x%02x，tag B = 0x%02x%s".format(
+                            detected.tagA, detected.tagB,
+                            if (detected.usedFlatPath) "" else "（注意：取的是带版本的目录那份，不是平铺的 lib/modules/vr.ko）",
+                        ),
+                    )
+
+                    // 载荷里那个值可能是另一种 —— 直接改，而不是"对不上就停下"。
+                    val patch = runCatching { VrKoTagPatcher.patch(baseLibrary, detected.tagA) }
+                    if (patch.isFailure) {
+                        val msg = "识别到了本机 tag A = 0x%02x，但没能改到载荷里：%s".format(
+                            detected.tagA, patch.exceptionOrNull()?.message ?: "未知原因",
+                        )
+                        publish("[X] $msg")
+                        mutableState.value = mutableState.value.copy(
+                            phase = PayloadBuildPhase.Failed,
+                            error = msg,
+                            blockedKind = BuildBlockKind.VR_KO_TAG_PATCH_FAILED,
+                        )
+                        return@launch
+                    }
+                    val report = patch.getOrThrow()
+                    if (report.changed) {
+                        publish(
+                            "[i] 载荷里的 tag A 由 0x%02x 改为 0x%02x（%d 处，锚点 %d 处）".format(
+                                report.oldTagA, report.newTagA, report.patchedSites, report.anchorSites,
+                            ),
+                        )
+                    } else {
+                        publish("[i] 载荷里的 tag A 已经是 0x%02x，无需改写（锚点 %d 处）".format(report.oldTagA, report.anchorSites))
+                    }
+                    mutableState.value = mutableState.value.copy(
+                        probedTagA = detected.tagA,
+                        probeSummary = "本机 vr.ko tag A = 0x%02x（%s）".format(
+                            detected.tagA,
+                            if (report.changed) "已改写载荷 %d 处".format(report.patchedSites) else "载荷本来就对",
+                        ),
+                    )
                 }
 
                 // ── 提示（**不是**闸门）：这台机器像是蓝厂的，却选了通用方案 ──

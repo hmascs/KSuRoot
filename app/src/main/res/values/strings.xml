@@ -390,4 +390,13 @@
     <string name="library_scope_note">Only files added by this app (or explicitly picked through the system picker) are listed. Scoped storage does not let an app scan files created by other apps.</string>
     <string name="library_swipe_delete">Delete</string>
     <string name="library_deleted">Removed from library: %1$s</string>
+    <string name="builder_pick_vendor_boot">Choose vendor_boot.img</string>
+    <string name="builder_vendor_boot_why">Why the vivo scheme needs this: the marker byte offset that vr.ko uses is baked into the payload at compile time, and it comes in two values (0x04 / 0x06) — one device can even ship both, in two different vr.ko builds. Pick the wrong one and the bypass clears the wrong byte: the marker stays, the child process still gets killed, and nothing in the log looks wrong. The vr.ko that actually loads on this device lives inside vendor_boot.img, so reading it settles the value instead of gambling on it.</string>
+    <string name="builder_vendor_boot_missing">No vendor_boot.img chosen</string>
+    <string name="builder_vendor_boot_ok">vr.ko tag A = 0x%1$02x · %2$s</string>
+    <string name="builder_import_package">Import full ROM package</string>
+    <string name="builder_package_why">Pick the complete ROM package you downloaded (OTA zip or fastboot tgz). It finds boot / vendor_boot inside by itself — you do not need to unpack anything.</string>
+    <string name="builder_vendor_boot_label">vendor_boot.img (vivo / iQOO only)</string>
+    <string name="builder_vendor_boot_chosen">%1$s · %2$s</string>
+    <string name="builder_scheme_need_vendor_boot">vendor_boot.img is not selected yet — tap here to pick it. This scheme needs it to read the vr.ko marker offset of this device.</string>
 </resources>

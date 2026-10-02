@@ -132,6 +132,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.key
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -405,6 +406,17 @@ private fun RootApp(
         customPayload = CustomPayloadStore.current(context)
         libraryEntries = CustomPayloadStore.list(context)
         activeLibraryId = CustomPayloadStore.activeId(context)
+        // ⚠️ **来源也要一起重读。**
+        //
+        // `payloadSource` 在这个文件里是 Compose state，而真正决定"装哪一份载荷"的是
+        // `AppPreferences.payloadSource(context)`（见 InstallViewModel 里那处读取）。
+        // 两份不同步时会出现：界面高亮「内置」、确认框也写着内置，
+        // 点下去装的却是刚构建出来的自定义载荷 —— 用户完全看不出来。
+        //
+        // 所以凡是"改动过载荷来源"的地方，刷库时一律把偏好重读一遍，
+        // 而不是指望每个调用点都记得成对写两处（审计报告里就是抓到这个：6 个写入点
+        // 有 5 个成对，构建自动落库那条落了单）。
+        payloadSource = AppPreferences.payloadSource(context)
     }
     // 用户在机型清单里手动点选的载荷（`jniLibs` 文件名）。`null` = 不指定，按设备自动匹配。
     // 只活在这一次界面会话里，不落盘 —— 它是"这次就用这份"的一次性决定，
@@ -516,27 +528,6 @@ private fun RootApp(
         }
     }
 
-    if (showHandoffConfirm) {
-        RootHandoffConfirmDialog(
-            onDismiss = { showHandoffConfirm = false },
-            onConfirm = {
-                showHandoffConfirm = false
-                showManagerSheet = true
-            },
-        )
-    }
-    if (showManagerSheet) {
-        RootManagerSheet(
-            onDismiss = { showManagerSheet = false },
-            onPick = { manager -> runHandoff(manager) },
-        )
-    }
-    if (handoffRunning) {
-        HandoffProgressDialog(pendingManager?.displayName ?: "")
-    }
-    handoffLines?.let { lines ->
-        HandoffResultDialog(lines = lines, onDismiss = { handoffLines = null })
-    }
 
     // ── 载荷构建：选 boot.img ──
     // 只读、不持久化权限：boot.img 是一次性输入，解析完就不再需要访问它了。
@@ -546,6 +537,25 @@ private fun RootApp(
         if (uri == null) return@rememberLauncherForActivityResult
         val (name, size) = queryOpenable(context, uri)
         builderViewModel.rememberBootImage(uri, name, size.coerceAtLeast(0L))
+    }
+
+    // -- 载荷构建：选 vendor_boot.img（**蓝厂方案专用**）--
+    // 和 boot.img 一样只读不持久化：解析完就不再需要访问它。
+    val vendorBootLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val (name, size) = queryOpenable(context, uri)
+        builderViewModel.rememberVendorBootImage(uri, name, size.coerceAtLeast(0L))
+    }
+
+    // 完整刷机包：一次选出 boot + vendor_boot。
+    val romPackageLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val (name, size) = queryOpenable(context, uri)
+        builderViewModel.importRomPackage(uri, name, size.coerceAtLeast(0L))
     }
 
     // ── 载荷构建：导出产出的 .so / target.h ──
@@ -791,6 +801,9 @@ private fun RootApp(
                             state = buildState,
                             otaState = otaState,
                             onPickBootImage = { bootImageLauncher.launch(arrayOf("*/*")) },
+                            onPickVendorBoot = { vendorBootLauncher.launch(arrayOf("*/*")) },
+                            onImportRomPackage = { romPackageLauncher.launch(arrayOf("*/*")) },
+                            onLibraryChanged = { refreshLibrary() },
                             onParseOtaLink = { builderViewModel.parseOtaLink(it) },
                             onCancelOtaParse = { builderViewModel.cancelOtaParse() },
                             onClearOtaError = { builderViewModel.clearOtaError() },
@@ -873,8 +886,77 @@ private fun RootApp(
             },
     )
 
+            // ── 移交 root：选管理器 ──
+
+            // ⚠️ 必须放在 Scaffold **里面**。miuix 的 OverlayBottomSheet 依赖 Scaffold 提供的
+
+            // LocalDialogStates / MuxiPopupHost 来渲染；放在外面时那些 CompositionLocal 是空列表，
+
+            // 状态不被消费 —— 弹层**根本不渲染**，表现出来就是「点了没反应」。
+
+            // （原来的 ModalBottomSheet 没这个要求，所以从它换过来时位置必须一起挪。）
+
+            // 同样不能包在 if 里：show 驱动弹簧出入场，包起来就看不到收起动画。
+
+            // 同一串流程里的另三个框：确认 / 进行中 / 结果。
+
+            // 它们和 RootManagerSheet 一样**必须在 Scaffold 里**，也**不能包在 if 里** ——
+
+            // 理由同上（CompositionLocal + show 驱动出入场）。
+
+            RootHandoffConfirmDialog(
+
+                show = showHandoffConfirm,
+
+                onDismiss = { showHandoffConfirm = false },
+
+                onConfirm = {
+
+                    showHandoffConfirm = false
+
+                    showManagerSheet = true
+
+                },
+
+            )
+
+            HandoffProgressDialog(
+
+                show = handoffRunning,
+
+                managerName = pendingManager?.displayName ?: "",
+
+            )
+
+            HandoffResultDialog(
+
+                show = handoffLines != null,
+
+                lines = handoffLines.orEmpty(),
+
+                onDismiss = { handoffLines = null },
+
+            )
+
+
+            RootManagerSheet(
+
+                show = showManagerSheet,
+
+                onDismiss = { showManagerSheet = false },
+
+                onPick = { manager -> runHandoff(manager) },
+
+            )
+
+
             PayloadSchemeSheet(
                 show = showSchemeSheet,
+                vendorBootName = buildState.vendorBootName,
+                onNeedVendorBoot = {
+                    showSchemeSheet = false
+                    vendorBootLauncher.launch(arrayOf("*/*"))
+                },
                 onDismiss = { showSchemeSheet = false },
                 onPick = { scheme ->
                     showSchemeSheet = false
@@ -1693,7 +1775,13 @@ private fun CustomPayloadCard(
             val lacksBypass = library != null && entries.any { entry ->
                 entry.variants.any { it.library == library && it.vivoVrBypass == false }
             }
-            if (lacksBypass) vrKoPendingLibrary = library else onManualPayloadChanged(library)
+            // 「不建议使用」也走同一条确认路径：不拦着用户选（那是他的机器、
+            // 也可能就是在做对照），但必须让他知道自己选的是什么。
+            val discouraged = library != null && entries.any { entry ->
+                entry.variants.any { it.library == library && it.notRecommended != null }
+            }
+            if (lacksBypass || discouraged) vrKoPendingLibrary = library
+            else onManualPayloadChanged(library)
         },
         selectedLabel = manualLabel,
         onDismiss = { detailSheet = null },
@@ -1701,18 +1789,35 @@ private fun CustomPayloadCard(
 
     // 降级标注的第二次确认。措辞里必须带上**后果**，不能只说"该载荷未适配"。
     vrKoPendingLibrary?.let { library ->
+        // 两种「点之前先说一句」共用这一个弹层，文案按**实际原因**选：
+        //  · 实测不带 vr.ko 绕过 → 蓝厂机型上会"提权成功之后被杀"；
+        //  · 上游自己就说这条利用链走不通 → 那是另一回事，不能套上面那段话。
+        // 混用文案会让用户按错误的理由做决定，比不提示更糟。
+        val pendingReason = entries
+            .flatMap { it.variants }
+            .firstOrNull { it.library == library }
+            ?.notRecommended
         AlertDialog(
             onDismissRequest = { vrKoPendingLibrary = null },
             icon = { Icon(Icons.Rounded.Error, contentDescription = null) },
             title = {
                 DialogDimAmount(0.24f)
-                Text("这份载荷没有 vivo 反 vr.ko 绕过")
+                Text(
+                    if (pendingReason != null) "这份载荷不建议使用"
+                    else "这份载荷没有 vivo 反 vr.ko 绕过",
+                )
             },
             text = {
                 Text(
-                    text = "在带 vr.ko 的蓝厂机型上，它会**提权成功之后**被 sys_exit 探针杀掉：" +
-                        "看起来像「提权失败」，其实标记根本没抹。\n\n" +
-                        "如果你确定这台机器的内核没带 vr.ko，可以继续。",
+                    text = if (pendingReason != null) {
+                        pendingReason + "\n\n" +
+                            "仍然保留在列表里，是为了让「它到底行不行」这件事可以被对照验证；" +
+                            "但把它当提权载荷用，大概率只是浪费时间。"
+                    } else {
+                        "在带 vr.ko 的蓝厂机型上，它会**提权成功之后**被 sys_exit 探针杀掉：" +
+                            "看起来像「提权失败」，其实标记根本没抹。\n\n" +
+                            "如果你确定这台机器的内核没带 vr.ko，可以继续。"
+                    },
                     style = MiuixTheme.textStyles.footnote1,
                 )
             },
@@ -1879,6 +1984,8 @@ private data class PayloadVariant(
      * `false` 时必须在行内标红、并在选中时弹一次确认 —— 见 [PayloadVariant] 的使用点。
      */
     val vivoVrBypass: Boolean? = null,
+    /** **不建议使用**的原因；`null` = 没有这一条。见 [PayloadVariant] 的展示点。 */
+    val notRecommended: String? = null,
 ) {
     /**
      * 供搜索用的全部文本（小写）。
@@ -2020,6 +2127,7 @@ private fun bundledSupportedDevices(defaultLibrary: String): List<SupportedDevic
                             sha256 = entry.sha256,
                             size = entry.size,
                             vivoVrBypass = entry.vivoVrBypass,
+                            notRecommended = entry.notRecommended,
                         )
                     }
                     // 排序必须放在 map **之后**：比较器比的是 PayloadVariant，
@@ -2343,6 +2451,16 @@ private fun PayloadSourceDetailSheet(
                                             if (variant.vivoVrBypass == false) {
                                                 Text(
                                                     stringResource(R.string.payload_variant_no_vr_ko),
+                                                    style = MiuixTheme.textStyles.footnote2,
+                                                    color = MiuixTheme.colorScheme.error,
+                                                )
+                                            }
+                                            // 「不建议使用」必须排在「本机推荐」**之前**：
+                                            // 一条"推荐"和一条"上游自己说不行"同时出现时，
+                                            // 先看到哪条决定了他会不会点。
+                                            variant.notRecommended?.let { reason ->
+                                                Text(
+                                                    reason,
                                                     style = MiuixTheme.textStyles.footnote2,
                                                     color = MiuixTheme.colorScheme.error,
                                                 )
@@ -3653,33 +3771,47 @@ private fun PatchWarningDialog(
  */
 @Composable
 private fun RootHandoffConfirmDialog(
+    show: Boolean,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    AlertDialog(
+    // 从 Material3 `AlertDialog` 换成 miuix `OverlayDialog`。
+    // 换的理由和 [PatchWarningDialog] 当初一样：Material3 的圆角、留白、按钮形状
+    // 和 miuix 那套不是一回事，并排出现时一眼看得出来。移交 root 这一串弹窗
+    // （确认 / 进行中 / 结果 / 选管理器）现在还全是 AlertDialog，是本应用
+    // **最后一批** Material3 外形的框 —— 一并收掉。
+    OverlayDialog(
+        show = show,
         onDismissRequest = onDismiss,
-        icon = { Icon(Icons.Rounded.Security, contentDescription = null) },
-        title = {
-            DialogDimAmount(0.24f)
-            Text(stringResource(R.string.root_handoff_confirm_title))
-        },
-        text = {
+        title = stringResource(R.string.root_handoff_confirm_title),
+        renderInRootScaffold = false,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
                 stringResource(R.string.root_handoff_confirm_body),
                 style = MiuixTheme.textStyles.body2,
             )
-        },
-        confirmButton = {
-            FilledTonalButton(onClick = onConfirm) {
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            TextButton(
+                text = stringResource(R.string.root_handoff_not_now),
+                onClick = onDismiss,
+                modifier = Modifier.weight(1f),
+            )
+            Button(
+                onClick = onConfirm,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColorsPrimary(),
+            ) {
                 Text(stringResource(R.string.root_handoff_confirm_go))
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.root_handoff_not_now))
-            }
-        },
-    )
+        }
+    }
 }
 
 /**
@@ -3690,22 +3822,32 @@ private fun RootHandoffConfirmDialog(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RootManagerSheet(
+    show: Boolean,
     onDismiss: () -> Unit,
     onPick: (RootManager) -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    // -- 与「选方案」那套弹层统一 --------------------------------------------
+    //
+    // 原来这里是**裸 ModalBottomSheet** + 硬编码的 20.dp / 18.dp，标题用 headline2。
+    // 而应用里其余弹层（选方案、载荷来源详情…）走的是 miuix 的 OverlayBottomSheet +
+    // Spacing.page / Spacing.card + title4。同一个应用里两套弹层长得不一样，
+    // 用户会觉得"这个框像是从别的 app 里抠出来的" —— 所以并到一套上。
+    //
+    // 注意 OverlayBottomSheet 要**常驻组合**（靠 show 驱动弹簧出入场），
+    // 不能包在 `if (show)` 里 —— 调用点也一并改了。
+    OverlayBottomSheet(
+        show = show,
+        title = stringResource(R.string.root_handoff_sheet_title),
+        onDismissRequest = onDismiss,
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = Spacing.page)
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = stringResource(R.string.root_handoff_sheet_title),
-                    style = MiuixTheme.textStyles.headline2,
-                )
                 Text(
                     text = stringResource(R.string.root_handoff_sheet_subtitle),
                     style = MiuixTheme.textStyles.body2,
@@ -3719,7 +3861,7 @@ private fun RootManagerSheet(
                     pressFeedbackType = PressFeedbackType.Sink,
                 ) {
                     Row(
-                        modifier = Modifier.padding(18.dp),
+                        modifier = Modifier.padding(Spacing.card),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
@@ -3762,58 +3904,65 @@ private fun RootManagerSheet(
 
 /** 移交进行中。`su` 可能弹授权框，所以这里要明确告诉用户"正在等什么"。 */
 @Composable
-private fun HandoffProgressDialog(managerName: String) {
-    AlertDialog(
-        onDismissRequest = { /* 执行中不允许点掉，避免状态错乱 */ },
-        icon = {
+private fun HandoffProgressDialog(show: Boolean, managerName: String) {
+    OverlayDialog(
+        show = show,
+        // 执行中不允许点掉，避免状态错乱。
+        onDismissRequest = { },
+        title = stringResource(R.string.root_handoff_running, managerName),
+        renderInRootScaffold = false,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             // 用主风格已有的 LoadingIndicator（与安装/构建进度同一套动效），
             // 不引入第二种转圈样式。
             LoadingIndicator(
                 modifier = Modifier.size(28.dp),
                 color = MiuixTheme.colorScheme.primary,
             )
-        },
-        title = {
-            DialogDimAmount(0.24f)
-            Text(stringResource(R.string.root_handoff_running, managerName))
-        },
-        text = {
-            // [勘误] 这里原来错用了确认框的正文（root_handoff_confirm_body），
-            // 于是"正在执行"的框里写着"是否移交？"—— 答非所问。
-            // 现在用专门的进行中文案，并提醒用户可能会弹 root 授权框。
             Text(
                 stringResource(R.string.root_handoff_running_body),
                 style = MiuixTheme.textStyles.footnote1,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
-        },
-        confirmButton = {},
-    )
+        }
+    }
 }
 
 /** 移交结果：逐行原样展示（含原始输出），给一个「知道了」。 */
 @Composable
-private fun HandoffResultDialog(lines: List<String>, onDismiss: () -> Unit) {
-    AlertDialog(
+private fun HandoffResultDialog(show: Boolean, lines: List<String>, onDismiss: () -> Unit) {
+    OverlayDialog(
+        show = show,
         onDismissRequest = onDismiss,
-        icon = { Icon(Icons.Rounded.Security, contentDescription = null) },
-        title = {
-            DialogDimAmount(0.24f)
-            Text(stringResource(R.string.root_handoff_result_title))
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                lines.forEach { line ->
-                    Text(line, style = MiuixTheme.textStyles.footnote1)
-                }
+        title = stringResource(R.string.root_handoff_result_title),
+        renderInRootScaffold = false,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            lines.forEach { line ->
+                Text(line, style = MiuixTheme.textStyles.footnote1)
             }
-        },
-        confirmButton = {
-            FilledTonalButton(onClick = onDismiss) {
+        }
+        // 按钮**单独一行、贴底**，和 PatchWarningDialog / 安装确认那套一致。
+        // 之前我把 FilledTonalButton 直接跟在正文后面 —— 结果是左对齐 + 灰底，
+        // 在同一个应用里和别的确认框并排就看得出不是一套。
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Button(
+                onClick = onDismiss,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColorsPrimary(),
+            ) {
                 Text(stringResource(R.string.action_confirm))
             }
-        },
-    )
+        }
+    }
 }
 
 /**
@@ -3829,6 +3978,9 @@ private fun PayloadSchemeSheet(
     show: Boolean,
     onDismiss: () -> Unit,
     onPick: (PayloadScheme) -> Unit,
+    /** 勾蓝厂方案时用的：vendor_boot 还没选，就**先去选**，而不是让用户点了构建再被拦。 */
+    vendorBootName: String,
+    onNeedVendorBoot: () -> Unit,
 ) {
     // miuix 弹层：show 驱动弹簧出入场，常驻组合（不能包在 if 里）。
     OverlayBottomSheet(
@@ -3850,8 +4002,18 @@ private fun PayloadSchemeSheet(
             )
             PayloadScheme.entries.forEachIndexed { index, scheme ->
                 val recommended = scheme == PayloadScheme.Universal
+                // -- 勾蓝厂时先查 vendor_boot ----------------------------------
+                //
+                // 为什么**在这里**提醒，而不是等点了"开始构建"再拦：
+                // 那时用户已经选完方案、按了按钮，被弹回去会有"怎么不早说"的感觉。
+                // 而方案选择这一步本来就是**用户做决定的那一刻** —— 缺什么在这里说，
+                // 他顺手就补上了。
+                //
+                // 而且不只是提醒：直接点这张卡就等于"去选 vendor_boot"。
+                // 提醒 + 下一步动作合成一次点击，比"提示一句然后让他自己找入口"省事。
+                val needsVendorBoot = scheme.needsVendorBoot && vendorBootName.isBlank()
                 Card(
-                    onClick = { onPick(scheme) },
+                    onClick = { if (needsVendorBoot) onNeedVendorBoot() else onPick(scheme) },
                     modifier = Modifier.fillMaxWidth(),
                     pressFeedbackType = PressFeedbackType.Sink,
                 ) {
@@ -3893,6 +4055,16 @@ private fun PayloadSchemeSheet(
                                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                 modifier = Modifier.padding(top = 2.dp),
                             )
+                            // 缺 vendor_boot 时把话说明白，并告诉他"点这张卡就是去选文件"。
+                            // 放这一行而不是另开弹窗：用户正在做选择，别把他从选择里拽出去。
+                            if (needsVendorBoot) {
+                                Text(
+                                    text = stringResource(R.string.builder_scheme_need_vendor_boot),
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.error,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
                         }
                         Icon(
                             imageVector = Icons.Rounded.ChevronRight,
@@ -3926,6 +4098,12 @@ private fun PayloadBuilderPage(
     /** 「解析完整包链接」的状态与动作。 */
     otaState: OtaLinkState,
     onPickBootImage: () -> Unit,
+    /** 选 `vendor_boot.img`（**蓝厂方案专用**，理由见界面上的说明文案）。 */
+    onPickVendorBoot: () -> Unit,
+    /** 选一个**完整刷机包**，从里面自动取 boot / vendor_boot。 */
+    onImportRomPackage: () -> Unit,
+    /** 构建会自动落库并切来源，落库之后要通知外面重读（否则界面与偏好会脱节）。 */
+    onLibraryChanged: () -> Unit,
     /** 提交一个完整包直链去解析。 */
     onParseOtaLink: (String) -> Unit,
     onCancelOtaParse: () -> Unit,
@@ -3942,6 +4120,13 @@ private fun PayloadBuilderPage(
     val context = LocalContext.current
     val layoutDirection = LocalLayoutDirection.current
     val logScroll = rememberScrollState()
+    // 构建完成时 ViewModel 会**自动**把产物写进「自定义载荷」并切成 Custom 来源
+    // （不需要用户再点一次）。那条路径没有回调到这里，所以来源的 Compose state
+    // 会停在旧值上 —— 界面高亮「内置」，点安装装的却是刚构建的那份。
+    // 用一个副作用把它接上：appliedAsPayload 变 true 就重读一遍。
+    LaunchedEffect(state.appliedAsPayload) {
+        if (state.appliedAsPayload) onLibraryChanged()
+    }
     // 「解析完整包链接」对话框的开关。定义放在这里是因为下面的按钮要用到它，
     // 而对话框本体在函数体更靠后的位置（和其它弹层排在一起）。
     var showOta by remember { mutableStateOf(false) }
@@ -4133,6 +4318,9 @@ private fun PayloadBuilderPage(
             BuildBlockKind.ABI_CONFLICT -> "基线 ABI 冲突，已拒绝构建"
             BuildBlockKind.UNKNOWN_KERNEL -> "无法识别内核版本"
             BuildBlockKind.VIVO_VR_KO_MISSING -> "这份载荷没有 vivo 反 vr.ko 绕过"
+            BuildBlockKind.VENDOR_BOOT_REQUIRED -> "蓝厂方案还需要 vendor_boot.img"
+            BuildBlockKind.VENDOR_BOOT_UNREADABLE -> "认不出这台机器的 vr.ko 标记偏移"
+            BuildBlockKind.VR_KO_TAG_PATCH_FAILED -> "识别到了偏移，但没能改写载荷"
             BuildBlockKind.OTHER -> "构建未完成"
         }
         AlertDialog(
@@ -4173,6 +4361,7 @@ private fun PayloadBuilderPage(
                     else -> FilledTonalButton(onClick = onDismissBlock) {
                         Text(stringResource(R.string.action_confirm))
                     }
+
                 }
             },
             dismissButton = {
@@ -4289,6 +4478,28 @@ private fun PayloadBuilderPage(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(stringResource(R.string.builder_pick_boot))
                     }
+                    // 第三条路（本地文件版）：直接选完整刷机包。
+                    // 和上面的「解析完整包链接」是同一条路的两种入口 ——
+                    // 那个要用户先拿到直链，这个直接选已下载到手机上的那个包。
+                    Button(
+                        onClick = onImportRomPackage,
+                        enabled = !state.busy,
+                        modifier = Modifier.fillMaxWidth(),
+                        minHeight = BuilderButtonHeight,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.FolderOpen,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(stringResource(R.string.builder_import_package))
+                    }
+                    Text(
+                        text = stringResource(R.string.builder_package_why),
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
                     // 第三条路：不要求用户先自己去固件包里翻出 boot.img。
                     // 完整包动辄 4–8 GiB，所以走的是 HTTP Range 只取需要的那几块
                     // —— 代价与边界见 com.kernelpack.ota.OtaPayloadExtractor。
@@ -4305,6 +4516,71 @@ private fun PayloadBuilderPage(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(stringResource(R.string.builder_ota))
+                    }
+
+                    // -- vendor_boot.img（蓝厂方案专用）----------------------------
+                    //
+                    // 通用方案不做 vr.ko 绕过，也就没有那个标记偏移要定 —— 所以标注上
+                    // 写清楚"只有蓝厂要"，并把"为什么"直接摊在输入区（而不是藏在文档里）。
+                    // 方案是在点"开始构建"时才选的，所以这块对两种方案的用户都可见，
+                    // 但标题与说明已经说明白了它是给谁的。
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Rounded.Shield,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MiuixTheme.colorScheme.primary,
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.builder_vendor_boot_label),
+                            style = MiuixTheme.textStyles.title4,
+                        )
+                    }
+                    Text(
+                        text = stringResource(R.string.builder_vendor_boot_why),
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    )
+                    Text(
+                        text = if (state.vendorBootName.isBlank()) {
+                            stringResource(R.string.builder_vendor_boot_missing)
+                        } else {
+                            stringResource(
+                                R.string.builder_vendor_boot_chosen,
+                                state.vendorBootName,
+                                android.text.format.Formatter.formatFileSize(context, state.vendorBootSize),
+                            )
+                        },
+                        style = MiuixTheme.textStyles.body2,
+                        color = if (state.vendorBootName.isBlank()) {
+                            MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        } else {
+                            MiuixTheme.colorScheme.primary
+                        },
+                    )
+                    // 探到的结论直接摊开 —— 用户最该看到的就是这台机器是 0x04 还是 0x06。
+                    state.probedTagA?.let { tagA ->
+                        Text(
+                            text = stringResource(R.string.builder_vendor_boot_ok, tagA, state.probeSummary),
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.primary,
+                        )
+                    }
+                    Button(
+                        onClick = onPickVendorBoot,
+                        enabled = !state.busy,
+                        modifier = Modifier.fillMaxWidth(),
+                        minHeight = BuilderButtonHeight,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.FolderOpen,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(stringResource(R.string.builder_pick_vendor_boot))
                     }
                     if (otaState.running) {
                         Row(

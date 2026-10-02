@@ -197,8 +197,12 @@ object CustomPayloadStore {
      */
     fun clear(context: Context) {
         activeFile(context).delete()
-        val entries = readIndex(context)
-        markActive(context, entries.firstOrNull()?.id)
+        // ⚠️ 这里以前是 `markActive(entries.firstOrNull()?.id)` —— 和 remove() 修掉的那个
+        // 老 bug **逐字一样**：活动副本删了，id 却还指着第一条。后果是 current() 返回 null，
+        // 而 list() 仍然给那一条填上**非空** activePath（违背它自己的文档不变量），
+        // 界面上继续打「当前生效」徽标 —— 说正在用它，其实根本没有可加载的文件。
+        // remove() 只在"删掉当前那一条"时才会走到那段逻辑，clear() 是另一条路径，所以漏了。
+        markActive(context, null)
     }
 
     // ────────────────────────── 内部 ──────────────────────────

@@ -274,7 +274,134 @@ class KallsymsFinder(private val img: ByteArray, private val opts: KallsymsOptio
 
     // ------------------------------------------ 步骤 4：kallsyms_token_index
 
+    /**
+     * ★ 用**内核自己的 `kallsyms_token_index`** 校验并纠正 token 表的起点。
+     *
+     * ### 为什么需要这一步（真机上抓到的）
+     *
+     * 表起点是用启发式找的：先定位那个单字符 token `"0"`，再**往回退 0x30 个 token**，
+     * 最后对齐到 4 字节。往回退多少是**猜的常数** —— 退多一两个 token 就会偏几个字节。
+     *
+     * iQOO Pad Air 5（6.1.134）就是这种情况：检测到 `0x14559a4`，
+     * 而真表起点是 `0x14559a8`（**偏 4 字节，正好多退了一个 token**）。
+     * 后果不是"读出来是垃圾"那么好发现 —— 是走完 256 个 token 之后，
+     * 拿算出来的偏移去表尾找 `token_index` **永远找不到**，
+     * 于是整个解析以一个 `IllegalStateException` 崩掉，用户只看到一句"找不到 kallsyms_token_index"。
+     *
+     * ### 为什么这个纠正**可信**
+     *
+     * 内核在表尾紧接着放了一份 `token_index`（256 个 u16，第 i 项就是第 i 个 token
+     * 相对表首的偏移）。它是一份**独立的、内核自己写的**答案 ——
+     * 所以这不是"再猜一个",而是**拿标准答案反解题目**：
+     * 先读出真正的 `token_index`，再解出"哪个表首能让 256 个 token 的边界与它逐项吻合"。
+     * 解出来的表首会被**重新走一遍验证**，不一致就不采纳。
+     *
+     * ### 对已经能跑的镜像的影响
+     *
+     * **零影响**：算出来的偏移和内核索引一致时，这里直接返回，一个字节都不改。
+     */
+    private fun correctTokenTableOffset() {
+        val first = walkTokenTable(tokenTableOffset) ?: return
+        val indexPos = findTokenIndexAfter(first.second) ?: return
+        val actual = IntArray(256) { readU16(indexPos + it * 2) }
+        if (first.first.contentEquals(actual)) return
+
+        val corrected = solveTokenTableStart(actual, indexPos)
+        if (corrected == null) {
+            throw IllegalStateException(
+                "找到了 kallsyms_token_table（0x${java.lang.Long.toHexString(tokenTableOffset.toLong())}）" +
+                    "和 kallsyms_token_index（0x${java.lang.Long.toHexString(indexPos.toLong())}），" +
+                    "但两者的 token 边界对不上，且没能解出正确的表首。" +
+                    "这份内核的 kallsyms 布局可能不是已知的两种之一。",
+            )
+        }
+        log(
+            "[i] token 表起点由 0x${java.lang.Long.toHexString(tokenTableOffset.toLong())} " +
+                "纠正为 0x${java.lang.Long.toHexString(corrected.toLong())}" +
+                "（原值多退/少退了 ${corrected - tokenTableOffset} 字节；依据是内核自己的 kallsyms_token_index）",
+        )
+        tokenTableOffset = corrected
+    }
+
+    /** 从 [start] 起走 256 个 NUL 结尾 token，返回 (各项相对表首的偏移, 走完的位置)。 */
+    private fun walkTokenTable(start: Int): Pair<IntArray, Int>? {
+        val offsets = IntArray(256)
+        var pos = start
+        for (t in 0 until 256) {
+            offsets[t] = pos - start
+            var n = 0
+            while (true) {
+                if (pos >= img.size) return null
+                val c = img[pos].toInt() and 0xff
+                pos += 1
+                if (c == 0) break
+                n += 1
+                if (n >= 50) return null
+            }
+        }
+        return offsets to pos
+    }
+
+    /**
+     * 在 [from] 之后的一段里找内核真正的 `kallsyms_token_index`。
+     *
+     * 判据（三条都要）：首项为 0、非递减且相邻至少差 2（一个 token 最短是 `x\0`）、
+     * 末项足够大（表里 256 个 token 不可能只有几百字节）。
+     * 只用"非递减"会被表尾的**填充零**骗到 —— 一串 `00 00` 读成 u16 也是非递减的。
+     */
+    private fun findTokenIndexAfter(from: Int): Int? {
+        val limit = minOf(img.size - 512, from + 4096)
+        for (p in from..limit) {
+            if (readU16(p) != 0) continue
+            var prev = 0
+            var ok = true
+            for (i in 1 until 256) {
+                val v = readU16(p + i * 2)
+                if (v - prev < 2) { ok = false; break }
+                prev = v
+            }
+            if (ok && prev >= 400) return p
+        }
+        return null
+    }
+
+    /**
+     * 用 [index] 反解表首：找那个能让 256 个 token 边界与索引逐项吻合的位置。
+     *
+     * 表尾紧邻 [indexPos]（中间可能有些填充），所以表首只可能在
+     * `indexPos - index[255]` 往前一小段里 —— 搜索窗口取 320 字节，
+     * 足够覆盖"最后一个 token 的长度"加"对齐填充"。
+     */
+    private fun solveTokenTableStart(index: IntArray, indexPos: Int): Int? {
+        val upper = indexPos - index[255] - 2
+        val lower = upper - 320
+        for (t in upper downTo lower) {
+            if (t < 0) continue
+            var ok = true
+            for (i in 0 until 255) {
+                val s = t + index[i]
+                val e = t + index[i + 1] - 1
+                if (s < 0 || e >= img.size) { ok = false; break }
+                if ((img[s].toInt() and 0xff) == 0) { ok = false; break }
+                if ((img[e].toInt() and 0xff) != 0) { ok = false; break }
+            }
+            if (!ok) continue
+            val end = t + index[255]
+            if (end < 0 || end >= img.size) continue
+            if (img.copyOfRange(end, minOf(img.size, end + 64)).indexOfFirst { it == 0.toByte() } < 0) continue
+            val walked = walkTokenTable(t) ?: continue
+            if (walked.first.contentEquals(index)) return t
+        }
+        return null
+    }
+
+    private fun readU16(at: Int): Int {
+        if (at < 0 || at + 1 >= img.size) return -1
+        return (img[at].toInt() and 0xff) or ((img[at + 1].toInt() and 0xff) shl 8)
+    }
+
     private fun findKallsymsTokenIndex() {
+        correctTokenTableOffset()
         var position = tokenTableOffset
         val allTokenOffsets = IntArray(256)
         position -= 1

@@ -235,6 +235,15 @@ internal object BundledPayloadImported {
             kernel = null, build = "",
             sha256 = "d77f3153ce5a754eb64be92002807b32ff75d466ff7d54fb5ecdd10ddd41ff33", size = 221288L, shortName = "",
             source = "qsvggff-spec/oppo-A5-PRO-5G-CVE-2026-43499 :: preload-tokay-PKP110.so",
+            // 这份载荷**仍然随包**（有人可能想拿它做对照实验），但上游作者自己的结论
+            // 就是「这条路走不通」—— 他那个仓库是**失败研究的归档**，不是可用的利用。
+            // 原文：「CVE-2026-43499 在 6.1 GKI + Android 14/15/16 加固环境上利用链无法收敛」
+            //      「三条 KASLR 泄露路线全堵死，提权链无法收敛」
+            // 并注明 iQOO Neo9s PRO / iQOO Z10x / vivo X Fold5 的独立研究得出相同结论。
+            // 不标出来的话，它在列表里和能用的载荷长得一模一样 —— 那正是本工程一直在防的假象。
+            notRecommended = "上游作者自己的结论是「利用链无法收敛」：该仓库是失败研究的归档，" +
+                "不是可用的利用（原文：三条 KASLR 泄露路线全堵死；iQOO Neo9s PRO / Z10x / " +
+                "vivo X Fold5 独立研究结论相同）。仍随包供对照，但不建议作为提权载荷使用。",
         ),
         imported(
             library = "libksu_oppo_cve202643499pja110_any_1264.so", vendor = "oppo",
@@ -630,6 +639,7 @@ internal object BundledPayloadImported {
         shortName: String,
         source: String,
         vivoVrBypass: Boolean? = null,
+        notRecommended: String? = null,
     ) = BundledPayloadCatalog.BundledPayload(
         library = library,
         vendor = vendor,
@@ -641,6 +651,7 @@ internal object BundledPayloadImported {
         shortName = shortName,
         sourcePath = source,
         vivoVrBypass = vivoVrBypass,
+        notRecommended = notRecommended,
         command = "LD_PRELOAD=<payload> /system/bin/id",
         origin = BundledPayloadCatalog.Origin.VendorBuild,
         // 不再给每条挂「内核未知」备注 —— 83 份里 77 份读不出内核版本，

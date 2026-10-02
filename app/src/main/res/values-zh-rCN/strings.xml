@@ -282,4 +282,13 @@
     <string name="library_scope_note">只列出本应用添加的、或你通过系统选择器显式授权过的文件。分区存储不允许应用扫描别的应用创建的下载文件。</string>
     <string name="library_swipe_delete">删除</string>
     <string name="library_deleted">已从库房删除：%1$s</string>
+    <string name="builder_pick_vendor_boot">选择 vendor_boot.img</string>
+    <string name="builder_vendor_boot_why">蓝厂方案为什么要这一份：vr.ko 的标记字节偏移是**编译期烤进载荷**的，而它有 0x04 / 0x06 两种取值 —— 同一台设备的两份 vr.ko 就各一种。选错的表现是"清错字节、标记没抹掉、子进程照样被杀"，而日志里一切正常，根本看不出是这个原因。这台机器**实际加载的那份 vr.ko** 就在 vendor_boot.img 里，读它就能把值定死，而不是赌一个。</string>
+    <string name="builder_vendor_boot_missing">还没选 vendor_boot.img</string>
+    <string name="builder_vendor_boot_ok">本机 vr.ko tag A = 0x%1$02x · %2$s</string>
+    <string name="builder_import_package">导入完整刷机包</string>
+    <string name="builder_package_why">选你下载的完整刷机包（OTA zip 或 fastboot tgz），它会自己找出里面的 boot / vendor_boot —— 不用你先解压、也不用手动提取。</string>
+    <string name="builder_vendor_boot_label">vendor_boot.img（仅 vivo / iQOO 需要）</string>
+    <string name="builder_vendor_boot_chosen">%1$s · %2$s</string>
+    <string name="builder_scheme_need_vendor_boot">还没选 vendor_boot.img —— 点这里去选（这个方案要靠它读出本机 vr.ko 的标记偏移）。</string>
 </resources>

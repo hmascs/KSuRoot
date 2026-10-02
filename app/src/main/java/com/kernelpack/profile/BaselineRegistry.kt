@@ -526,6 +526,17 @@ object BaselineRegistry {
         fun profileIdForLibrary(libraryName: String): String? = when (libraryName) {
             SIX_ONE -> BASELINE_6_1.id
             SIX_TWELVE -> BASELINE_6_12.id
+            // ⚠️ 6.6 这两份**同样要覆盖**，这是真机上漏出来的一条：
+            //
+            // PD2463（6.6.89）上路由按完整内核串命中了上游档 `up-6-6-89-…-vivo`
+            // （旧值来自 GhostLock 的 offsets.h），而基础库是 `libbs.so`
+            // （旧值是 PD2520 那份 target.h 里的）→ **25 项一处都没匹配上**，
+            // 被零命中闸门当场拦下（拦得对，但根因在这里）。
+            //
+            // 上一轮只补了自编的 6.1 / 6.12，把 6.6 的这两份落下了 ——
+            // 它们同样是"方案自带的库"，只适用于自己的那一档。
+            "libbs.so" -> BaselineProfiles.PD2520.id
+            "libionstack.so" -> BaselineProfiles.IONSTACK_P10.id
             else -> null
         }
 
